@@ -19,7 +19,7 @@ function parseConversationInfoPayload(text: string): Record<string, unknown> {
 }
 
 describe("buildInboundMetaSystemPrompt", () => {
-  it("includes trusted message and routing ids for tool actions", () => {
+  it("includes static routing info but omits per-turn ids for KV cache stability", () => {
     const prompt = buildInboundMetaSystemPrompt({
       MessageSid: "123",
       MessageSidFull: "123",
@@ -33,9 +33,10 @@ describe("buildInboundMetaSystemPrompt", () => {
 
     const payload = parseInboundMetaPayload(prompt);
     expect(payload["schema"]).toBe("openclaw.inbound_meta.v1");
-    expect(payload["message_id"]).toBe("123");
+    // Per-turn dynamic fields moved to user-role context (buildInboundUserContextPrefix)
+    expect(payload["message_id"]).toBeUndefined();
     expect(payload["message_id_full"]).toBeUndefined();
-    expect(payload["reply_to_id"]).toBe("99");
+    expect(payload["reply_to_id"]).toBeUndefined();
     expect(payload["chat_id"]).toBe("telegram:5494292670");
     expect(payload["channel"]).toBe("telegram");
   });
@@ -99,7 +100,7 @@ describe("buildInboundMetaSystemPrompt", () => {
     expect(payload["sender_id"]).toBeUndefined();
   });
 
-  it("keeps message_id_full only when it differs from message_id", () => {
+  it("omits message_id_full from system prompt (moved to user context)", () => {
     const prompt = buildInboundMetaSystemPrompt({
       MessageSid: "short-id",
       MessageSidFull: "full-provider-message-id",
@@ -111,8 +112,8 @@ describe("buildInboundMetaSystemPrompt", () => {
     } as TemplateContext);
 
     const payload = parseInboundMetaPayload(prompt);
-    expect(payload["message_id"]).toBe("short-id");
-    expect(payload["message_id_full"]).toBe("full-provider-message-id");
+    expect(payload["message_id"]).toBeUndefined();
+    expect(payload["message_id_full"]).toBeUndefined();
   });
 });
 
@@ -146,14 +147,25 @@ describe("buildInboundUserContextPrefix", () => {
     expect(conversationInfo["sender"]).toBe("+15551234567");
   });
 
-  it("omits message_id from conversation info (provided via system prompt instead)", () => {
+  it("includes message_id in conversation info (moved from system prompt for KV cache stability)", () => {
     const text = buildInboundUserContextPrefix({
       ChatType: "direct",
       MessageSid: "  msg-123  ",
     } as TemplateContext);
 
-    // message_id alone no longer produces a conversation info block
-    expect(text).toBe("");
+    const conversationInfo = parseConversationInfoPayload(text);
+    expect(conversationInfo["message_id"]).toBe("msg-123");
+  });
+
+  it("includes reply_to_id in conversation info", () => {
+    const text = buildInboundUserContextPrefix({
+      ChatType: "direct",
+      MessageSid: "msg-456",
+      ReplyToId: "msg-123",
+    } as TemplateContext);
+
+    const conversationInfo = parseConversationInfoPayload(text);
+    expect(conversationInfo["reply_to_id"]).toBe("msg-123");
   });
 
   it("falls back to SenderId when sender phone is missing", () => {

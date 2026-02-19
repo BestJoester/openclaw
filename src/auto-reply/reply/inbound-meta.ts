@@ -13,20 +13,21 @@ function safeTrim(value: unknown): string | undefined {
 export function buildInboundMetaSystemPrompt(ctx: TemplateContext): string {
   const chatType = normalizeChatType(ctx.ChatType);
   const isDirect = !chatType || chatType === "direct";
-  const messageId = safeTrim(ctx.MessageSid);
-  const messageIdFull = safeTrim(ctx.MessageSidFull);
-  const replyToId = safeTrim(ctx.ReplyToId);
   const chatId = safeTrim(ctx.OriginatingTo);
 
   // Keep system metadata strictly free of attacker-controlled strings (sender names, group subjects, etc.).
   // Those belong in the user-role "untrusted context" blocks.
+  //
+  // Per-turn dynamic fields (message_id, message_id_full, reply_to_id,
+  // flags.history_count) are intentionally omitted here because they change
+  // with every inbound message, which invalidates the KV-cache prefix on
+  // backends that use byte-for-byte prefix matching (e.g. llama.cpp).
+  // Those fields are provided in the user-role context instead via
+  // buildInboundUserContextPrefix().
   const payload = {
     schema: "openclaw.inbound_meta.v1",
-    message_id: messageId,
-    message_id_full: messageIdFull && messageIdFull !== messageId ? messageIdFull : undefined,
     sender_id: safeTrim(ctx.SenderId),
     chat_id: chatId,
-    reply_to_id: replyToId,
     channel: safeTrim(ctx.OriginatingChannel) ?? safeTrim(ctx.Surface) ?? safeTrim(ctx.Provider),
     provider: safeTrim(ctx.Provider),
     surface: safeTrim(ctx.Surface),
@@ -37,7 +38,6 @@ export function buildInboundMetaSystemPrompt(ctx: TemplateContext): string {
       has_reply_context: Boolean(ctx.ReplyToBody),
       has_forwarded_context: Boolean(ctx.ForwardedFrom),
       has_thread_starter: Boolean(safeTrim(ctx.ThreadStarterBody)),
-      history_count: Array.isArray(ctx.InboundHistory) ? ctx.InboundHistory.length : 0,
     },
   };
 
@@ -60,11 +60,13 @@ export function buildInboundUserContextPrefix(ctx: TemplateContext): string {
   const chatType = normalizeChatType(ctx.ChatType);
   const isDirect = !chatType || chatType === "direct";
 
-  // message_id is omitted here — it is already provided in the system prompt
-  // via buildInboundMetaSystemPrompt(). Keeping it out of user-role content
-  // avoids changing the token prefix of historical messages, which improves
-  // KV-cache reuse on prefix-matching backends (e.g. llama.cpp).
+  // Per-turn routing ids (message_id, reply_to_id) live here rather than in
+  // the system prompt so the system prompt stays static across turns, which
+  // keeps the KV-cache prefix stable on llama.cpp and similar backends.
+  // Each user message keeps its own stable ids from when it was first created.
   const conversationInfo = {
+    message_id: safeTrim(ctx.MessageSid),
+    reply_to_id: safeTrim(ctx.ReplyToId),
     conversation_label: isDirect ? undefined : safeTrim(ctx.ConversationLabel),
     sender: safeTrim(ctx.SenderE164) ?? safeTrim(ctx.SenderId) ?? safeTrim(ctx.SenderUsername),
     group_subject: safeTrim(ctx.GroupSubject),
