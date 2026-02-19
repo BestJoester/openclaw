@@ -60,8 +60,11 @@ export function buildInboundUserContextPrefix(ctx: TemplateContext): string {
   const chatType = normalizeChatType(ctx.ChatType);
   const isDirect = !chatType || chatType === "direct";
 
+  // message_id is omitted here — it is already provided in the system prompt
+  // via buildInboundMetaSystemPrompt(). Keeping it out of user-role content
+  // avoids changing the token prefix of historical messages, which improves
+  // KV-cache reuse on prefix-matching backends (e.g. llama.cpp).
   const conversationInfo = {
-    message_id: safeTrim(ctx.MessageSid),
     conversation_label: isDirect ? undefined : safeTrim(ctx.ConversationLabel),
     sender: safeTrim(ctx.SenderE164) ?? safeTrim(ctx.SenderId) ?? safeTrim(ctx.SenderUsername),
     group_subject: safeTrim(ctx.GroupSubject),
