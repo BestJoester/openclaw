@@ -97,6 +97,8 @@ export type RunEmbeddedPiAgentParams = {
   lane?: string;
   enqueue?: typeof enqueueCommand;
   extraSystemPrompt?: string;
+  /** Dynamic per-turn metadata (e.g. inbound meta with message_id). Injected at end of system prompt for KV cache stability. */
+  dynamicMetaPrompt?: string;
   inputProvenance?: InputProvenance;
   streamParams?: AgentStreamParams;
   ownerNumbers?: string[];

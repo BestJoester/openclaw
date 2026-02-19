@@ -13,6 +13,8 @@ export function buildEmbeddedSystemPrompt(params: {
   defaultThinkLevel?: ThinkLevel;
   reasoningLevel?: ReasoningLevel;
   extraSystemPrompt?: string;
+  /** Dynamic per-turn metadata (e.g. inbound meta with message_id). Injected at end of system prompt for KV cache stability. */
+  dynamicMetaPrompt?: string;
   ownerNumbers?: string[];
   reasoningTagHint: boolean;
   heartbeatPrompt?: string;
@@ -54,6 +56,7 @@ export function buildEmbeddedSystemPrompt(params: {
     defaultThinkLevel: params.defaultThinkLevel,
     reasoningLevel: params.reasoningLevel,
     extraSystemPrompt: params.extraSystemPrompt,
+    dynamicMetaPrompt: params.dynamicMetaPrompt,
     ownerNumbers: params.ownerNumbers,
     reasoningTagHint: params.reasoningTagHint,
     heartbeatPrompt: params.heartbeatPrompt,

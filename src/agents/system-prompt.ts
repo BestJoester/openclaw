@@ -171,6 +171,8 @@ export function buildAgentSystemPrompt(params: {
   defaultThinkLevel?: ThinkLevel;
   reasoningLevel?: ReasoningLevel;
   extraSystemPrompt?: string;
+  /** Dynamic per-turn metadata (e.g. inbound meta with message_id). Injected at end of system prompt for KV cache stability. */
+  dynamicMetaPrompt?: string;
   ownerNumbers?: string[];
   reasoningTagHint?: boolean;
   toolNames?: string[];
@@ -322,6 +324,7 @@ export function buildAgentSystemPrompt(params: {
   const execToolName = resolveToolName("exec");
   const processToolName = resolveToolName("process");
   const extraSystemPrompt = params.extraSystemPrompt?.trim();
+  const dynamicMetaPrompt = params.dynamicMetaPrompt?.trim();
   const ownerNumbers = (params.ownerNumbers ?? []).map((value) => value.trim()).filter(Boolean);
   const ownerLine =
     ownerNumbers.length > 0
@@ -634,6 +637,12 @@ export function buildAgentSystemPrompt(params: {
     buildRuntimeLine(runtimeInfo, runtimeChannel, runtimeCapabilities, params.defaultThinkLevel),
     `Reasoning: ${reasoningLevel} (hidden unless on/stream). Toggle /reasoning; /status shows Reasoning when enabled.`,
   );
+
+  // Inject dynamic per-turn metadata (e.g. inbound meta with message_id) at the very
+  // end so all preceding static sections remain KV-cache-stable across user turns.
+  if (dynamicMetaPrompt) {
+    lines.push("## Inbound Context", dynamicMetaPrompt, "");
+  }
 
   return lines.filter(Boolean).join("\n");
 }

@@ -439,6 +439,7 @@ export async function runEmbeddedAttempt(
       defaultThinkLevel: params.thinkLevel,
       reasoningLevel: params.reasoningLevel ?? "off",
       extraSystemPrompt: params.extraSystemPrompt,
+      dynamicMetaPrompt: params.dynamicMetaPrompt,
       ownerNumbers: params.ownerNumbers,
       reasoningTagHint,
       heartbeatPrompt: isDefaultAgent

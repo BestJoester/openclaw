@@ -121,6 +121,7 @@ export type CompactEmbeddedPiSessionParams = {
   lane?: string;
   enqueue?: typeof enqueueCommand;
   extraSystemPrompt?: string;
+  dynamicMetaPrompt?: string;
   ownerNumbers?: string[];
 };
 
@@ -485,6 +486,7 @@ export async function compactEmbeddedPiSessionDirect(
       defaultThinkLevel: params.thinkLevel,
       reasoningLevel: params.reasoningLevel ?? "off",
       extraSystemPrompt: params.extraSystemPrompt,
+      dynamicMetaPrompt: params.dynamicMetaPrompt,
       ownerNumbers: params.ownerNumbers,
       reasoningTagHint,
       heartbeatPrompt: isDefaultAgent

@@ -187,9 +187,10 @@ export async function runPreparedReply(
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
     isNewSession ? sessionCtx : { ...sessionCtx, ThreadStarterBody: undefined },
   );
-  const extraSystemPrompt = [inboundMetaPrompt, groupChatContext, groupIntro, groupSystemPrompt]
+  const extraSystemPrompt = [groupChatContext, groupIntro, groupSystemPrompt]
     .filter(Boolean)
     .join("\n\n");
+  const dynamicMetaPrompt = inboundMetaPrompt || undefined;
   const baseBody = sessionCtx.BodyStripped ?? sessionCtx.Body ?? "";
   // Use CommandBody/RawBody for bare reset detection (clean message without structural context).
   const rawBodyTrimmed = (ctx.CommandBody ?? ctx.RawBody ?? ctx.Body ?? "").trim();
@@ -431,6 +432,7 @@ export async function runPreparedReply(
       blockReplyBreak: resolvedBlockStreamingBreak,
       ownerNumbers: command.ownerList.length > 0 ? command.ownerList : undefined,
       extraSystemPrompt: extraSystemPrompt || undefined,
+      dynamicMetaPrompt,
       ...(isReasoningTagProvider(provider) ? { enforceFinalTag: true } : {}),
     },
   };

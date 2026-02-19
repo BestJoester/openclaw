@@ -95,6 +95,7 @@ export async function runMemoryFlushIfNeeded(params: {
   ]
     .filter(Boolean)
     .join("\n\n");
+  const flushDynamicMetaPrompt = params.followupRun.run.dynamicMetaPrompt;
   try {
     await runWithModelFallback({
       ...resolveModelFallbackOptions(params.followupRun.run),
@@ -121,6 +122,7 @@ export async function runMemoryFlushIfNeeded(params: {
             cfg: params.cfg,
           }),
           extraSystemPrompt: flushSystemPrompt,
+          dynamicMetaPrompt: flushDynamicMetaPrompt,
           onAgentEvent: (evt) => {
             if (evt.stream === "compaction") {
               const phase = typeof evt.data.phase === "string" ? evt.data.phase : "";

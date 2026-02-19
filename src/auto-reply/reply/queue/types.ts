@@ -77,6 +77,8 @@ export type FollowupRun = {
     blockReplyBreak: "text_end" | "message_end";
     ownerNumbers?: string[];
     extraSystemPrompt?: string;
+    /** Dynamic per-turn metadata (e.g. inbound meta with message_id). Injected at end of system prompt for KV cache stability. */
+    dynamicMetaPrompt?: string;
     enforceFinalTag?: boolean;
   };
 };
