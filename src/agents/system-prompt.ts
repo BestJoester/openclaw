@@ -543,12 +543,6 @@ export function buildAgentSystemPrompt(params: {
     ...buildVoiceSection({ isMinimal, ttsHint: params.ttsHint }),
   ];
 
-  if (extraSystemPrompt) {
-    // Use "Subagent Context" header for minimal mode (subagents), otherwise "Group Chat Context"
-    const contextHeader =
-      promptMode === "minimal" ? "## Subagent Context" : "## Group Chat Context";
-    lines.push(contextHeader, extraSystemPrompt, "");
-  }
   if (params.reactionGuidance) {
     const { level, channel } = params.reactionGuidance;
     const guidanceText =
@@ -634,6 +628,14 @@ export function buildAgentSystemPrompt(params: {
     buildRuntimeLine(runtimeInfo, runtimeChannel, runtimeCapabilities, params.defaultThinkLevel),
     `Reasoning: ${reasoningLevel} (hidden unless on/stream). Toggle /reasoning; /status shows Reasoning when enabled.`,
   );
+
+  // Inject extraSystemPrompt (contains dynamic inbound meta with message_id) at the
+  // very end so all preceding static sections remain KV-cache-stable across user turns.
+  if (extraSystemPrompt) {
+    const contextHeader =
+      promptMode === "minimal" ? "## Subagent Context" : "## Group Chat Context";
+    lines.push(contextHeader, extraSystemPrompt, "");
+  }
 
   return lines.filter(Boolean).join("\n");
 }
