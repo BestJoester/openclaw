@@ -10,6 +10,7 @@ import {
   BlockStreamingCoalesceSchema,
   CliBackendSchema,
   HumanDelaySchema,
+  KvCacheStabilitySchema,
 } from "./zod-schema.core.js";
 
 export const AgentDefaultsSchema = z
@@ -38,10 +39,12 @@ export const AgentDefaultsSchema = z
             params: z.record(z.string(), z.unknown()).optional(),
             /** Enable streaming for this model (default: true, false for Ollama to avoid SDK issue #1205). */
             streaming: z.boolean().optional(),
+            kvCacheStability: KvCacheStabilitySchema,
           })
           .strict(),
       )
       .optional(),
+    kvCacheStability: KvCacheStabilitySchema,
     workspace: z.string().optional(),
     repoRoot: z.string().optional(),
     skipBootstrap: z.boolean().optional(),

@@ -5,6 +5,7 @@ import {
   GroupChatSchema,
   HumanDelaySchema,
   IdentitySchema,
+  KvCacheStabilitySchema,
   ToolsLinksSchema,
   ToolsMediaSchema,
 } from "./zod-schema.core.js";
@@ -614,6 +615,20 @@ export const AgentEntrySchema = z
       .optional(),
     sandbox: AgentSandboxSchema,
     tools: AgentToolsSchema,
+    kvCacheStability: KvCacheStabilitySchema,
+    models: z
+      .record(
+        z.string(),
+        z
+          .object({
+            alias: z.string().optional(),
+            params: z.record(z.string(), z.unknown()).optional(),
+            streaming: z.boolean().optional(),
+            kvCacheStability: KvCacheStabilitySchema,
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 

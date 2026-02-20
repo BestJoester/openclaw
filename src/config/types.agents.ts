@@ -1,5 +1,9 @@
 import type { ChatType } from "../channels/chat-type.js";
-import type { AgentDefaultsConfig } from "./types.agent-defaults.js";
+import type {
+  AgentDefaultsConfig,
+  AgentModelEntryConfig,
+  KvCacheStabilityConfig,
+} from "./types.agent-defaults.js";
 import type { HumanDelayConfig, IdentityConfig } from "./types.base.js";
 import type { GroupChatConfig } from "./types.messages.js";
 import type {
@@ -63,6 +67,10 @@ export type AgentConfig = {
     prune?: SandboxPruneSettings;
   };
   tools?: AgentToolsConfig;
+  /** KV cache stability: move dynamic metadata to user messages for local LLM backends. */
+  kvCacheStability?: KvCacheStabilityConfig;
+  /** Per-agent model-specific overrides. Same structure as agents.defaults.models. */
+  models?: Record<string, AgentModelEntryConfig>;
 };
 
 export type AgentsConfig = {

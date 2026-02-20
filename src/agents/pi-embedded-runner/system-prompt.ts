@@ -1,9 +1,14 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { AgentSession } from "@mariozechner/pi-coding-agent";
+import type { KvCachePerChannelField } from "../../config/types.agent-defaults.js";
 import type { MemoryCitationsMode } from "../../config/types.memory.js";
 import type { ResolvedTimeFormat } from "../date-time.js";
 import type { EmbeddedContextFile } from "../pi-embedded-helpers.js";
-import { buildAgentSystemPrompt, type PromptMode } from "../system-prompt.js";
+import {
+  buildAgentSystemPrompt,
+  type ChannelContextForPrompt,
+  type PromptMode,
+} from "../system-prompt.js";
 import { buildToolSummaryMap } from "../tool-summaries.js";
 import type { EmbeddedSandboxInfo } from "./types.js";
 import type { ReasoningLevel, ThinkLevel } from "./utils.js";
@@ -48,6 +53,10 @@ export function buildEmbeddedSystemPrompt(params: {
   userTimeFormat?: ResolvedTimeFormat;
   contextFiles?: EmbeddedContextFile[];
   memoryCitationsMode?: MemoryCitationsMode;
+  /** KV cache: which per-channel sections to render in static multi-channel mode. */
+  kvCachePerChannelFields?: Set<KvCachePerChannelField>;
+  /** KV cache: all channel contexts for static mode. */
+  allChannelContexts?: ChannelContextForPrompt[];
 }): string {
   return buildAgentSystemPrompt({
     workspaceDir: params.workspaceDir,
@@ -74,6 +83,8 @@ export function buildEmbeddedSystemPrompt(params: {
     userTimeFormat: params.userTimeFormat,
     contextFiles: params.contextFiles,
     memoryCitationsMode: params.memoryCitationsMode,
+    kvCachePerChannelFields: params.kvCachePerChannelFields,
+    allChannelContexts: params.allChannelContexts,
   });
 }
 

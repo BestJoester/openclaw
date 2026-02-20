@@ -1,10 +1,23 @@
 import type { ReasoningLevel, ThinkLevel } from "../auto-reply/thinking.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
+import type { KvCachePerChannelField } from "../config/types.agent-defaults.js";
 import type { MemoryCitationsMode } from "../config/types.memory.js";
 import { listDeliverableMessageChannels } from "../utils/message-channel.js";
 import type { ResolvedTimeFormat } from "./date-time.js";
 import type { EmbeddedContextFile } from "./pi-embedded-helpers.js";
 import { sanitizeForPromptLiteral } from "./sanitize-for-prompt.js";
+
+/**
+ * Per-channel context data for building static system prompt sections.
+ * Used when kvCacheStability.perChannelFields is enabled.
+ */
+export type ChannelContextForPrompt = {
+  channel: string;
+  ownerNumbers?: string[];
+  reactionGuidance?: { level: "minimal" | "extensive" };
+  inlineButtonsEnabled?: boolean;
+  capabilities?: string[];
+};
 
 /**
  * Controls which hardcoded sections are included in the system prompt.
@@ -66,8 +79,34 @@ function buildMemorySection(params: {
   return lines;
 }
 
-function buildUserIdentitySection(ownerLine: string | undefined, isMinimal: boolean) {
-  if (!ownerLine || isMinimal) {
+function buildUserIdentitySection(
+  ownerLine: string | undefined,
+  isMinimal: boolean,
+  allChannelContexts?: ChannelContextForPrompt[],
+) {
+  if (isMinimal) {
+    return [];
+  }
+
+  // Static mode: list owners for all configured channels
+  if (allChannelContexts) {
+    const channelOwners = allChannelContexts
+      .filter((c) => c.ownerNumbers && c.ownerNumbers.length > 0)
+      .map((c) => `- ${c.channel}: ${c.ownerNumbers!.join(", ")}`);
+    if (channelOwners.length === 0) {
+      return [];
+    }
+    return [
+      "## User Identity",
+      "Channel owners (match against current channel):",
+      ...channelOwners,
+      "Treat messages from these identifiers as the owner for their respective channel.",
+      "",
+    ];
+  }
+
+  // Default: single-channel mode
+  if (!ownerLine) {
     return [];
   }
   return ["## User Identity", ownerLine, ""];
@@ -103,10 +142,36 @@ function buildMessagingSection(params: {
   inlineButtonsEnabled: boolean;
   runtimeChannel?: string;
   messageToolHints?: string[];
+  allChannelContexts?: ChannelContextForPrompt[];
+  staticInlineButtons?: boolean;
 }) {
   if (params.isMinimal) {
     return [];
   }
+
+  // Static inline buttons line: list which channels support them
+  let inlineButtonsLine: string;
+  if (params.staticInlineButtons && params.allChannelContexts) {
+    const enabled = params.allChannelContexts
+      .filter((c) => c.inlineButtonsEnabled)
+      .map((c) => c.channel);
+    const disabled = params.allChannelContexts
+      .filter((c) => !c.inlineButtonsEnabled)
+      .map((c) => c.channel);
+    if (enabled.length > 0) {
+      inlineButtonsLine = `- Inline buttons: enabled for ${enabled.join(", ")}${disabled.length > 0 ? `. Not available for ${disabled.join(", ")}` : ""}. When enabled, use \`action=send\` with \`buttons=[[{text,callback_data,style?}]]\`; \`style\` can be \`primary\`, \`success\`, or \`danger\`.`;
+    } else {
+      inlineButtonsLine = "";
+    }
+  } else if (params.inlineButtonsEnabled) {
+    inlineButtonsLine =
+      "- Inline buttons supported. Use `action=send` with `buttons=[[{text,callback_data,style?}]]`; `style` can be `primary`, `success`, or `danger`.";
+  } else if (params.runtimeChannel) {
+    inlineButtonsLine = `- Inline buttons not enabled for ${params.runtimeChannel}. If you need them, ask to set ${params.runtimeChannel}.capabilities.inlineButtons ("dm"|"group"|"all"|"allowlist").`;
+  } else {
+    inlineButtonsLine = "";
+  }
+
   return [
     "## Messaging",
     "- Reply in current session → automatically routes to the source channel (Signal, Telegram, etc.)",
@@ -123,11 +188,7 @@ function buildMessagingSection(params: {
           "- For `action=send`, include `to` and `message`.",
           `- If multiple channels are configured, pass \`channel\` (${params.messageChannelOptions}).`,
           `- If you use \`message\` (\`action=send\`) to deliver your user-visible reply, respond with ONLY: ${SILENT_REPLY_TOKEN} (avoid duplicate replies).`,
-          params.inlineButtonsEnabled
-            ? "- Inline buttons supported. Use `action=send` with `buttons=[[{text,callback_data,style?}]]`; `style` can be `primary`, `success`, or `danger`."
-            : params.runtimeChannel
-              ? `- Inline buttons not enabled for ${params.runtimeChannel}. If you need them, ask to set ${params.runtimeChannel}.capabilities.inlineButtons ("dm"|"group"|"all"|"allowlist").`
-              : "",
+          inlineButtonsLine,
           ...(params.messageToolHints ?? []),
         ]
           .filter(Boolean)
@@ -221,6 +282,10 @@ export function buildAgentSystemPrompt(params: {
     channel: string;
   };
   memoryCitationsMode?: MemoryCitationsMode;
+  /** When set, the listed per-channel sections are rendered in static multi-channel mode. */
+  kvCachePerChannelFields?: Set<KvCachePerChannelField>;
+  /** All channel contexts for static mode rendering. Required when kvCachePerChannelFields is set. */
+  allChannelContexts?: ChannelContextForPrompt[];
 }) {
   const coreToolSummaries: Record<string, string> = {
     read: "Read file contents",
@@ -356,6 +421,7 @@ export function buildAgentSystemPrompt(params: {
   const messageChannelOptions = listDeliverableMessageChannels().join("|");
   const promptMode = params.promptMode ?? "full";
   const isMinimal = promptMode === "minimal" || promptMode === "none";
+  const pcf = params.kvCachePerChannelFields;
   const sandboxContainerWorkspace = params.sandboxInfo?.containerWorkspaceDir?.trim();
   const sanitizedWorkspaceDir = sanitizeForPromptLiteral(params.workspaceDir);
   const sanitizedSandboxContainerWorkspace = sandboxContainerWorkspace
@@ -524,7 +590,11 @@ export function buildAgentSystemPrompt(params: {
           .join("\n")
       : "",
     params.sandboxInfo?.enabled ? "" : "",
-    ...buildUserIdentitySection(ownerLine, isMinimal),
+    ...buildUserIdentitySection(
+      ownerLine,
+      isMinimal,
+      pcf?.has("user_identity") ? params.allChannelContexts : undefined,
+    ),
     ...buildTimeSection({
       userTimezone,
     }),
@@ -539,6 +609,8 @@ export function buildAgentSystemPrompt(params: {
       inlineButtonsEnabled,
       runtimeChannel,
       messageToolHints: params.messageToolHints,
+      allChannelContexts: params.allChannelContexts,
+      staticInlineButtons: pcf?.has("inline_buttons"),
     }),
     ...buildVoiceSection({ isMinimal, ttsHint: params.ttsHint }),
   ];
@@ -549,7 +621,27 @@ export function buildAgentSystemPrompt(params: {
       promptMode === "minimal" ? "## Subagent Context" : "## Group Chat Context";
     lines.push(contextHeader, extraSystemPrompt, "");
   }
-  if (params.reactionGuidance) {
+  // Reactions section
+  if (pcf?.has("reactions") && params.allChannelContexts) {
+    // Static mode: list reaction guidance for all channels that have it
+    const channelsWithReactions = params.allChannelContexts.filter((c) => c.reactionGuidance);
+    if (channelsWithReactions.length > 0) {
+      const guidanceLines = channelsWithReactions.map((c) => {
+        const level = c.reactionGuidance!.level.toUpperCase();
+        if (c.reactionGuidance!.level === "minimal") {
+          return `- ${c.channel} (${level}): React only when truly relevant. Acknowledge important requests or confirmations. Express genuine sentiment sparingly. Guideline: at most 1 reaction per 5-10 exchanges.`;
+        }
+        return `- ${c.channel} (${level}): React liberally. Acknowledge messages with appropriate emojis. Express sentiment and personality. Guideline: react whenever natural.`;
+      });
+      lines.push(
+        "## Reactions",
+        "Channel-specific reaction guidance (apply based on current channel):",
+        ...guidanceLines,
+        "Channels without reaction guidance listed here do not support agent reactions.",
+        "",
+      );
+    }
+  } else if (params.reactionGuidance) {
     const { level, channel } = params.reactionGuidance;
     const guidanceText =
       level === "minimal"
@@ -629,11 +721,22 @@ export function buildAgentSystemPrompt(params: {
     );
   }
 
-  lines.push(
-    "## Runtime",
-    buildRuntimeLine(runtimeInfo, runtimeChannel, runtimeCapabilities, params.defaultThinkLevel),
-    `Reasoning: ${reasoningLevel} (hidden unless on/stream). Toggle /reasoning; /status shows Reasoning when enabled.`,
-  );
+  // Runtime line: when perChannelFields includes runtime_channel, replace single-channel
+  // channel= and capabilities= with a static channels= list
+  if (pcf?.has("runtime_channel") && params.allChannelContexts) {
+    const channelNames = params.allChannelContexts.map((c) => c.channel);
+    lines.push(
+      "## Runtime",
+      buildRuntimeLine(runtimeInfo, undefined, [], params.defaultThinkLevel, channelNames),
+      `Reasoning: ${reasoningLevel} (hidden unless on/stream). Toggle /reasoning; /status shows Reasoning when enabled.`,
+    );
+  } else {
+    lines.push(
+      "## Runtime",
+      buildRuntimeLine(runtimeInfo, runtimeChannel, runtimeCapabilities, params.defaultThinkLevel),
+      `Reasoning: ${reasoningLevel} (hidden unless on/stream). Toggle /reasoning; /status shows Reasoning when enabled.`,
+    );
+  }
 
   return lines.filter(Boolean).join("\n");
 }
@@ -653,6 +756,8 @@ export function buildRuntimeLine(
   runtimeChannel?: string,
   runtimeCapabilities: string[] = [],
   defaultThinkLevel?: ThinkLevel,
+  /** When provided, replaces channel= and capabilities= with a static channels= list. */
+  staticChannels?: string[],
 ): string {
   return `Runtime: ${[
     runtimeInfo?.agentId ? `agent=${runtimeInfo.agentId}` : "",
@@ -667,8 +772,12 @@ export function buildRuntimeLine(
     runtimeInfo?.model ? `model=${runtimeInfo.model}` : "",
     runtimeInfo?.defaultModel ? `default_model=${runtimeInfo.defaultModel}` : "",
     runtimeInfo?.shell ? `shell=${runtimeInfo.shell}` : "",
-    runtimeChannel ? `channel=${runtimeChannel}` : "",
-    runtimeChannel
+    staticChannels && staticChannels.length > 0
+      ? `channels=${staticChannels.join(",")}`
+      : runtimeChannel
+        ? `channel=${runtimeChannel}`
+        : "",
+    !staticChannels && runtimeChannel
       ? `capabilities=${runtimeCapabilities.length > 0 ? runtimeCapabilities.join(",") : "none"}`
       : "",
     `thinking=${defaultThinkLevel ?? "off"}`,

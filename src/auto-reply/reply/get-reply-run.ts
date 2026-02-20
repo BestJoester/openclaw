@@ -9,6 +9,7 @@ import {
   resolveEmbeddedSessionLane,
 } from "../../agents/pi-embedded.js";
 import type { OpenClawConfig } from "../../config/config.js";
+import { resolveKvCacheStability } from "../../config/kv-cache-stability.js";
 import {
   resolveGroupSessionKey,
   resolveSessionFilePath,
@@ -185,8 +186,30 @@ export async function runPreparedReply(
       })
     : "";
   const groupSystemPrompt = sessionCtx.GroupSystemPrompt?.trim() ?? "";
+
+  // Resolve KV cache stability config for this agent + model combination
+  const modelKey = `${provider}/${model}`;
+  const kvCacheStability = resolveKvCacheStability({
+    cfg,
+    agentId,
+    modelKey,
+    context: {
+      chatType:
+        (sessionCtx.ChatType?.trim().toLowerCase() as "direct" | "group" | "channel") || undefined,
+      channel: sessionCtx.Provider?.trim().toLowerCase() || undefined,
+      senderId: sessionCtx.SenderId?.trim() || undefined,
+      senderE164: sessionCtx.SenderE164?.trim() || undefined,
+      senderUsername: sessionCtx.SenderUsername?.trim() || undefined,
+      groupId: resolveGroupSessionKey(sessionCtx)?.id ?? undefined,
+      groupChannel: sessionCtx.GroupChannel?.trim() ?? sessionCtx.GroupSubject?.trim() ?? undefined,
+      senderIsOwner: command.senderIsOwner,
+      isSubagent: false,
+    },
+  });
+
   const inboundMetaPrompt = buildInboundMetaSystemPrompt(
     isNewSession ? sessionCtx : { ...sessionCtx, ThreadStarterBody: undefined },
+    kvCacheStability,
   );
   const extraSystemPrompt = [inboundMetaPrompt, groupChatContext, groupIntro, groupSystemPrompt]
     .filter(Boolean)
@@ -218,6 +241,7 @@ export async function runPreparedReply(
             : {}),
         }
       : { ...sessionCtx, ThreadStarterBody: undefined },
+    kvCacheStability,
   );
   const baseBodyForPrompt = isBareSessionReset
     ? baseBodyFinal

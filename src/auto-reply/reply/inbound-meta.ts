@@ -1,5 +1,6 @@
 import { normalizeChatType } from "../../channels/chat-type.js";
 import { resolveSenderLabel } from "../../channels/sender-label.js";
+import type { ResolvedKvCacheStability } from "../../config/kv-cache-stability.js";
 import type { TemplateContext } from "../templating.js";
 
 function safeTrim(value: unknown): string | undefined {
@@ -10,15 +11,33 @@ function safeTrim(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-export function buildInboundMetaSystemPrompt(ctx: TemplateContext): string {
+export function buildInboundMetaSystemPrompt(
+  ctx: TemplateContext,
+  kvCache?: ResolvedKvCacheStability,
+): string {
   const chatType = normalizeChatType(ctx.ChatType);
   const isDirect = !chatType || chatType === "direct";
 
+  const pt = kvCache?.perTurnFields;
+  const pc = kvCache?.perChannelFields;
+
   // Keep system metadata strictly free of attacker-controlled strings (sender names, group subjects, etc.).
   // Those belong in the user-role "untrusted context" blocks.
-  // Per-message identifiers (message_id, reply_to_id, sender_id) are also excluded here: they change
-  // on every turn and would bust prefix-based prompt caches on local model providers. They are
-  // included in the user-role conversation info block via buildInboundUserContextPrefix() instead.
+  //
+  // Per-turn dynamic fields (message_id, message_id_full, reply_to_id,
+  // flags.history_count) are intentionally omitted here because they change
+  // with every inbound message, which invalidates the KV-cache prefix on
+  // backends that use byte-for-byte prefix matching (e.g. llama.cpp).
+  // Those fields are provided in the user-role context instead via
+  // buildInboundUserContextPrefix().
+  //
+  // When kvCacheStability.perTurnFields is enabled, additional per-turn flags
+  // (has_reply_context, has_forwarded_context, has_thread_starter, was_mentioned,
+  // sender_id) are also moved to the user prefix for the same reason.
+  //
+  // When kvCacheStability.perChannelFields is enabled, channel/provider/surface
+  // and other per-channel fields are moved to user prefix so the system prompt
+  // stays fully static across channel switches.
 
   // Resolve channel identity: prefer explicit channel, then surface, then provider.
   // For webchat/Hub Chat sessions (when Surface is 'webchat' or undefined with no real channel),
@@ -38,17 +57,27 @@ export function buildInboundMetaSystemPrompt(ctx: TemplateContext): string {
 
   const payload = {
     schema: "openclaw.inbound_meta.v1",
-    chat_id: safeTrim(ctx.OriginatingTo),
-    channel: channelValue,
-    provider: safeTrim(ctx.Provider),
-    surface: safeTrim(ctx.Surface),
-    chat_type: chatType ?? (isDirect ? "direct" : undefined),
+    chat_id: pc?.has("inbound_meta") ? undefined : safeTrim(ctx.OriginatingTo),
+    channel: pc?.has("channel") ? undefined : channelValue,
+    provider: pc?.has("channel") ? undefined : safeTrim(ctx.Provider),
+    surface: pc?.has("channel") ? undefined : safeTrim(ctx.Surface),
+    chat_type: pc?.has("inbound_meta")
+      ? undefined
+      : (chatType ?? (isDirect ? "direct" : undefined)),
     flags: {
-      is_group_chat: !isDirect ? true : undefined,
-      was_mentioned: ctx.WasMentioned === true ? true : undefined,
-      has_reply_context: Boolean(ctx.ReplyToBody),
-      has_forwarded_context: Boolean(ctx.ForwardedFrom),
-      has_thread_starter: Boolean(safeTrim(ctx.ThreadStarterBody)),
+      is_group_chat: pc?.has("inbound_meta") ? undefined : !isDirect ? true : undefined,
+      was_mentioned: pt?.has("was_mentioned")
+        ? undefined
+        : ctx.WasMentioned === true
+          ? true
+          : undefined,
+      has_reply_context: pt?.has("has_reply_context") ? undefined : Boolean(ctx.ReplyToBody),
+      has_forwarded_context: pt?.has("has_forwarded_context")
+        ? undefined
+        : Boolean(ctx.ForwardedFrom),
+      has_thread_starter: pt?.has("has_thread_starter")
+        ? undefined
+        : Boolean(safeTrim(ctx.ThreadStarterBody)),
       history_count: Array.isArray(ctx.InboundHistory) ? ctx.InboundHistory.length : 0,
     },
   };
@@ -67,14 +96,27 @@ export function buildInboundMetaSystemPrompt(ctx: TemplateContext): string {
   ].join("\n");
 }
 
-export function buildInboundUserContextPrefix(ctx: TemplateContext): string {
+export function buildInboundUserContextPrefix(
+  ctx: TemplateContext,
+  kvCache?: ResolvedKvCacheStability,
+): string {
   const blocks: string[] = [];
   const chatType = normalizeChatType(ctx.ChatType);
   const isDirect = !chatType || chatType === "direct";
 
+  const pt = kvCache?.perTurnFields;
+  const pc = kvCache?.perChannelFields;
+
+  // Per-turn routing ids (message_id, reply_to_id) live here rather than in
+  // the system prompt so the system prompt stays static across turns, which
+  // keeps the KV-cache prefix stable on llama.cpp and similar backends.
+  // Each user message keeps its own stable ids from when it was first created.
+  //
+  // When kvCacheStability is enabled, additional fields are included here that
+  // were moved from the system prompt's inbound meta JSON.
   const messageId = safeTrim(ctx.MessageSid);
   const messageIdFull = safeTrim(ctx.MessageSidFull);
-  const conversationInfo = {
+  const conversationInfo: Record<string, unknown> = {
     message_id: messageId,
     message_id_full: messageIdFull && messageIdFull !== messageId ? messageIdFull : undefined,
     reply_to_id: safeTrim(ctx.ReplyToId),
@@ -88,6 +130,32 @@ export function buildInboundUserContextPrefix(ctx: TemplateContext): string {
     is_forum: ctx.IsForum === true ? true : undefined,
     was_mentioned: ctx.WasMentioned === true ? true : undefined,
   };
+
+  // Add per-channel fields moved from system prompt
+  if (pc?.has("channel")) {
+    conversationInfo.channel =
+      safeTrim(ctx.OriginatingChannel) ?? safeTrim(ctx.Surface) ?? safeTrim(ctx.Provider);
+  }
+  if (pc?.has("inbound_meta")) {
+    conversationInfo.chat_type = chatType ?? (isDirect ? "direct" : undefined);
+    conversationInfo.chat_id = safeTrim(ctx.OriginatingTo);
+    conversationInfo.is_group_chat = !isDirect ? true : undefined;
+  }
+
+  // Add per-turn fields moved from system prompt
+  if (pt?.has("sender_id")) {
+    conversationInfo.sender_id = safeTrim(ctx.SenderId);
+  }
+  if (pt?.has("has_reply_context")) {
+    conversationInfo.has_reply_context = Boolean(ctx.ReplyToBody);
+  }
+  if (pt?.has("has_forwarded_context")) {
+    conversationInfo.has_forwarded_context = Boolean(ctx.ForwardedFrom);
+  }
+  if (pt?.has("has_thread_starter")) {
+    conversationInfo.has_thread_starter = Boolean(safeTrim(ctx.ThreadStarterBody));
+  }
+
   if (Object.values(conversationInfo).some((v) => v !== undefined)) {
     blocks.push(
       [

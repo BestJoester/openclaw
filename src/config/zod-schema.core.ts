@@ -3,6 +3,55 @@ import { isSafeExecutableValue } from "../infra/exec-safety.js";
 import { createAllowDenyChannelRulesSchema } from "./zod-schema.allowdeny.js";
 import { sensitive } from "./zod-schema.sensitive.js";
 
+const KvCachePerTurnFieldSchema = z.enum([
+  "has_reply_context",
+  "has_forwarded_context",
+  "has_thread_starter",
+  "was_mentioned",
+  "sender_id",
+]);
+
+const KvCachePerChannelFieldSchema = z.enum([
+  "channel",
+  "user_identity",
+  "reactions",
+  "inline_buttons",
+  "runtime_channel",
+  "inbound_meta",
+]);
+
+const KvCacheChatTypeSchema = z.enum(["direct", "group", "channel"]);
+
+/** Accepts string or number identifiers (user IDs, phone numbers, group IDs, etc.). */
+const KvCacheIdListSchema = z.array(z.union([z.string(), z.number()]));
+
+const KvCacheStabilityContextMatchSchema = z
+  .object({
+    chatType: z.union([KvCacheChatTypeSchema, z.array(KvCacheChatTypeSchema)]).optional(),
+    channel: z.union([z.string(), z.array(z.string())]).optional(),
+    sender: KvCacheIdListSchema.optional(),
+    group: KvCacheIdListSchema.optional(),
+    groupChannel: KvCacheIdListSchema.optional(),
+    senderIsOwner: z.boolean().optional(),
+    isSubagent: z.boolean().optional(),
+  })
+  .strict();
+
+const KvCacheFieldsPartialSchema = z.object({
+  perTurnFields: z.union([z.boolean(), z.array(KvCachePerTurnFieldSchema)]).optional(),
+  perChannelFields: z.union([z.boolean(), z.array(KvCachePerChannelFieldSchema)]).optional(),
+});
+
+const KvCacheStabilityOverrideSchema = KvCacheFieldsPartialSchema.extend({
+  when: KvCacheStabilityContextMatchSchema,
+}).strict();
+
+export const KvCacheStabilitySchema = KvCacheFieldsPartialSchema.extend({
+  overrides: z.array(KvCacheStabilityOverrideSchema).optional(),
+})
+  .strict()
+  .optional();
+
 export const ModelApiSchema = z.union([
   z.literal("openai-completions"),
   z.literal("openai-responses"),

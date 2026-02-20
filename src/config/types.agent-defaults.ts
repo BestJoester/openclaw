@@ -12,12 +12,176 @@ import type {
 } from "./types.sandbox.js";
 import type { MemorySearchConfig } from "./types.tools.js";
 
+/**
+ * Per-turn field names that can be moved from the system prompt to user messages.
+ * When in the system prompt, these change every inbound message and invalidate KV cache.
+ */
+export type KvCachePerTurnField =
+  | "has_reply_context"
+  | "has_forwarded_context"
+  | "has_thread_starter"
+  | "was_mentioned"
+  | "sender_id";
+
+/**
+ * Per-channel section names that can be made static in the system prompt.
+ * When dynamic, these change on channel switch and invalidate KV cache.
+ */
+export type KvCachePerChannelField =
+  | "channel"
+  | "user_identity"
+  | "reactions"
+  | "inline_buttons"
+  | "runtime_channel"
+  | "inbound_meta";
+
+/**
+ * Chat type values used for context matching in KV cache stability overrides.
+ */
+export type KvCacheChatType = "direct" | "group" | "channel";
+
+/**
+ * Context condition for KV cache stability overrides.
+ * All specified fields must match (AND logic). Omitted fields match anything.
+ * Array values use OR logic within the field.
+ *
+ * Follows the same identifier conventions as `allowFrom` and `toolsBySender`:
+ * - Discord: numeric user IDs, guild IDs, channel IDs
+ * - Telegram: numeric user/chat IDs
+ * - Signal: E.164 phone numbers, UUIDs, group IDs
+ * - WhatsApp: E.164 phone numbers
+ * - Slack: Slack user/channel IDs
+ *
+ * Matching is case-insensitive. The `"*"` wildcard matches any value.
+ */
+export type KvCacheStabilityContextMatch = {
+  /** Match on chat type. Single value or array (OR). */
+  chatType?: KvCacheChatType | KvCacheChatType[];
+  /** Match on channel/provider name (e.g., "telegram", "discord"). Single or array (OR). */
+  channel?: string | string[];
+  /**
+   * Match on specific sender IDs. Platform-specific format:
+   * - Discord: user ID (e.g., "123456789")
+   * - Telegram: numeric user ID
+   * - Signal: E.164 ("+1234567890") or UUID
+   * - WhatsApp: E.164
+   * - Slack: Slack user ID (e.g., "U12345678")
+   *
+   * Matched against senderId, senderE164, and senderUsername (case-insensitive).
+   * Use `"*"` to match any sender.
+   */
+  sender?: Array<string | number>;
+  /**
+   * Match on specific group/guild IDs. Platform-specific format:
+   * - Discord: guild ID
+   * - Telegram: group chat ID (negative number)
+   * - Signal: group ID
+   * - WhatsApp: group JID
+   * - Slack: workspace ID
+   *
+   * Use `"*"` to match any group.
+   */
+  group?: Array<string | number>;
+  /**
+   * Match on specific channel/room IDs within a group. Platform-specific format:
+   * - Discord: channel ID within a guild
+   * - Slack: channel ID (e.g., "C12345678")
+   * - Telegram: topic ID within a supergroup
+   *
+   * Use `"*"` to match any group channel.
+   */
+  groupChannel?: Array<string | number>;
+  /** Match when the sender is (or is not) an owner/admin. */
+  senderIsOwner?: boolean;
+  /** Match when the session is (or is not) a subagent. */
+  isSubagent?: boolean;
+};
+
+/**
+ * A context-aware override for KV cache stability.
+ * When the `when` condition matches the current message context,
+ * these perTurnFields/perChannelFields replace the base config values.
+ */
+export type KvCacheStabilityOverride = {
+  /** Condition that must match for this override to apply. */
+  when: KvCacheStabilityContextMatch;
+  /**
+   * Override per-turn fields. Same semantics as base config:
+   * - `true`: move all per-turn fields
+   * - `false`: disable per-turn field moving
+   * - `string[]`: move only the listed fields
+   */
+  perTurnFields?: boolean | KvCachePerTurnField[];
+  /**
+   * Override per-channel fields. Same semantics as base config:
+   * - `true`: make all channel sections static
+   * - `false`: disable channel section stabilization
+   * - `string[]`: make only the listed sections static
+   */
+  perChannelFields?: boolean | KvCachePerChannelField[];
+};
+
+/**
+ * Runtime context passed to KV cache stability resolution.
+ * Populated from the current message/session state at each call site.
+ */
+export type KvCacheStabilityContext = {
+  chatType?: KvCacheChatType;
+  channel?: string;
+  senderId?: string;
+  senderE164?: string;
+  senderUsername?: string;
+  groupId?: string;
+  groupChannel?: string;
+  senderIsOwner?: boolean;
+  isSubagent?: boolean;
+};
+
+/**
+ * KV cache stability configuration.
+ *
+ * Moves dynamic metadata from the system prompt to user message prefixes so the
+ * system prompt stays stable across turns and channel switches. This keeps the
+ * KV-cache prefix intact on local LLM backends (llama.cpp, vLLM, etc.).
+ *
+ * **Off by default.** Only enable for local backends where KV-cache reuse matters.
+ *
+ * See docs/concepts/kv-cache-stability.md for per-field security documentation.
+ */
+export type KvCacheStabilityConfig = {
+  /**
+   * Move per-turn dynamic flags from the system prompt to user messages.
+   * - `true`: move all per-turn fields
+   * - `false` or absent: keep default behavior
+   * - `string[]`: move only the listed fields
+   */
+  perTurnFields?: boolean | KvCachePerTurnField[];
+  /**
+   * Make channel-specific system prompt sections static (covering all configured
+   * channels) and add a per-message channel identifier to user messages.
+   * - `true`: make all channel sections static
+   * - `false` or absent: keep default behavior
+   * - `string[]`: make only the listed sections static
+   */
+  perChannelFields?: boolean | KvCachePerChannelField[];
+  /**
+   * Context-aware overrides. First matching override wins, falling back to
+   * the base perTurnFields/perChannelFields above.
+   *
+   * Use this to disable or restrict KV cache stability in specific contexts
+   * (e.g., disable in groups, restrict in DMs with non-owners).
+   */
+  overrides?: KvCacheStabilityOverride[];
+};
+
 export type AgentModelEntryConfig = {
   alias?: string;
   /** Provider-specific API parameters (e.g., GLM-4.7 thinking mode). */
   params?: Record<string, unknown>;
   /** Enable streaming for this model (default: true, false for Ollama to avoid SDK issue #1205). */
   streaming?: boolean;
+  /** KV cache stability settings for this specific model. */
+  kvCacheStability?: KvCacheStabilityConfig;
 };
 
 export type AgentModelListConfig = {
@@ -128,6 +292,8 @@ export type AgentDefaultsConfig = {
   imageModel?: AgentModelListConfig;
   /** Model catalog with optional aliases (full provider/model keys). */
   models?: Record<string, AgentModelEntryConfig>;
+  /** KV cache stability: move dynamic metadata to user messages for local LLM backends. */
+  kvCacheStability?: KvCacheStabilityConfig;
   /** Agent working directory (preferred). Used as the default cwd for agent runs. */
   workspace?: string;
   /** Optional repository root for system prompt runtime line (overrides auto-detect). */

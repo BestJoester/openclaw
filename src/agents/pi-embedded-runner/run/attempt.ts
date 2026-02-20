@@ -6,6 +6,7 @@ import { streamSimple } from "@mariozechner/pi-ai";
 import { createAgentSession, SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
+import { resolveKvCacheStability } from "../../../config/kv-cache-stability.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
@@ -34,6 +35,7 @@ import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
 import { resolveOpenClawDocsPath } from "../../docs-path.js";
 import { isTimeoutError } from "../../failover-error.js";
 import { resolveImageSanitizationLimits } from "../../image-sanitization.js";
+import { buildAllChannelContexts } from "../../kv-cache-channel-contexts.js";
 import { resolveModelAuthMode } from "../../model-auth.js";
 import { resolveDefaultModelForAgent } from "../../model-selection.js";
 import { createOllamaStreamFn, OLLAMA_NATIVE_BASE_URL } from "../../ollama-stream.js";
@@ -419,10 +421,37 @@ export async function runEmbeddedAttempt(
       },
     });
     const isDefaultAgent = sessionAgentId === defaultAgentId;
-    const promptMode =
-      isSubagentSessionKey(params.sessionKey) || isCronSessionKey(params.sessionKey)
-        ? "minimal"
-        : "full";
+    const isSubagent = isSubagentSessionKey(params.sessionKey);
+    const promptMode = isSubagent || isCronSessionKey(params.sessionKey) ? "minimal" : "full";
+
+    // Resolve KV cache stability config for this agent + model combination
+    const modelKey = `${params.provider}/${params.modelId}`;
+    const kvCacheStability = resolveKvCacheStability({
+      cfg: params.config,
+      agentId: sessionAgentId,
+      modelKey,
+      context: {
+        chatType: params.groupId ? "group" : "direct",
+        channel: params.messageProvider?.trim().toLowerCase() || undefined,
+        senderId: params.senderId?.trim() || undefined,
+        senderE164: params.senderE164?.trim() || undefined,
+        senderUsername: params.senderUsername?.trim() || undefined,
+        groupId: params.groupId?.trim() || undefined,
+        groupChannel: params.groupChannel?.trim() || undefined,
+        senderIsOwner: params.senderIsOwner,
+        isSubagent,
+      },
+    });
+    // Build all-channels context for static system prompt when perChannelFields is enabled
+    const allChannelContexts =
+      kvCacheStability.perChannelFields.size > 0 && params.config
+        ? buildAllChannelContexts({
+            cfg: params.config,
+            agentId: sessionAgentId,
+            globalOwnerNumbers: params.ownerNumbers,
+          })
+        : undefined;
+
     const docsPath = await resolveOpenClawDocsPath({
       workspaceDir: effectiveWorkspace,
       argv1: process.argv[1],
@@ -457,6 +486,9 @@ export async function runEmbeddedAttempt(
       userTimeFormat,
       contextFiles,
       memoryCitationsMode: params.config?.memory?.citations,
+      kvCachePerChannelFields:
+        kvCacheStability.perChannelFields.size > 0 ? kvCacheStability.perChannelFields : undefined,
+      allChannelContexts,
     });
     const systemPromptReport = buildSystemPromptReport({
       source: "run",
