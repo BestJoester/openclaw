@@ -8,12 +8,33 @@ import type {
 } from "./types.base.js";
 import type { MemorySearchConfig } from "./types.tools.js";
 
+/**
+ * Controls the tool result context guard behavior.
+ *
+ * The guard prevents context overflow by replacing older tool results with
+ * placeholders. By default these replacements are in-memory only (reloaded
+ * from the session file each run), which can cause KV cache oscillation on
+ * local LLM backends when context hovers near the budget boundary.
+ */
+export type ToolResultGuardMode = "default" | "disabled" | "persistent";
+
+export type ToolResultGuardConfig = {
+  /**
+   * - `"default"`: In-memory compaction (current behavior, may cause KV cache oscillation)
+   * - `"disabled"`: No automatic tool result compaction
+   * - `"persistent"`: Compaction is persisted to the session file for KV cache stability
+   */
+  mode?: ToolResultGuardMode;
+};
+
 export type AgentModelEntryConfig = {
   alias?: string;
   /** Provider-specific API parameters (e.g., GLM-4.7 thinking mode). */
   params?: Record<string, unknown>;
   /** Enable streaming for this model (default: true, false for Ollama to avoid SDK issue #1205). */
   streaming?: boolean;
+  /** Tool result context guard settings for this specific model. */
+  toolResultGuard?: ToolResultGuardConfig;
 };
 
 export type AgentModelListConfig = {
@@ -181,6 +202,8 @@ export type AgentDefaultsConfig = {
      */
     projectSettingsPolicy?: "trusted" | "sanitize" | "ignore";
   };
+  /** Tool result context guard: controls automatic tool result compaction behavior. */
+  toolResultGuard?: ToolResultGuardConfig;
   /** Vector memory search configuration (per-agent overrides supported). */
   memorySearch?: MemorySearchConfig;
   /** Default thinking level when no /think directive is present. */
