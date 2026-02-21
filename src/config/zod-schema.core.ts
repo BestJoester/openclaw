@@ -512,3 +512,13 @@ export const ProviderCommandsSchema = z
   })
   .strict()
   .optional();
+
+/** Tool result context guard: controls automatic tool result compaction behavior. */
+export const ToolResultGuardSchema = z
+  .object({
+    mode: z
+      .union([z.literal("default"), z.literal("disabled"), z.literal("persistent")])
+      .optional(),
+  })
+  .strict()
+  .optional();

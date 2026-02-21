@@ -10,6 +10,7 @@ import {
   BlockStreamingCoalesceSchema,
   CliBackendSchema,
   HumanDelaySchema,
+  ToolResultGuardSchema,
 } from "./zod-schema.core.js";
 
 export const AgentDefaultsSchema = z
@@ -38,6 +39,8 @@ export const AgentDefaultsSchema = z
             params: z.record(z.string(), z.unknown()).optional(),
             /** Enable streaming for this model (default: true, false for Ollama to avoid SDK issue #1205). */
             streaming: z.boolean().optional(),
+            /** Tool result context guard settings for this specific model. */
+            toolResultGuard: ToolResultGuardSchema,
           })
           .strict(),
       )
@@ -107,6 +110,8 @@ export const AgentDefaultsSchema = z
       })
       .strict()
       .optional(),
+    /** Tool result context guard: controls automatic tool result compaction behavior. */
+    toolResultGuard: ToolResultGuardSchema,
     thinkingDefault: z
       .union([
         z.literal("off"),
