@@ -71,6 +71,24 @@ agents:
             mode: "persistent"
 ```
 
+## Provider wildcards
+
+Model keys support provider-level wildcards like `"ollama/*"` to match any model under that provider. Exact model keys always take priority over wildcards.
+
+```yaml
+agents:
+  defaults:
+    models:
+      "ollama/*":
+        toolResultGuard:
+          mode: "persistent"
+      "ollama/special":
+        toolResultGuard:
+          mode: "disabled" # takes priority over ollama/* for this model
+```
+
+Note: Provider wildcards only apply to `toolResultGuard` resolution. Other model-level settings (streaming, alias, params, etc.) still require exact model keys.
+
 ## Known limitation: persistent mode and memory flush
 
 In `"persistent"` mode, compacted tool results are permanently replaced with placeholders in the session file. If the pre-compaction memory flush hasn't run yet, the original tool output is lost from the session. The model's assistant responses (which summarize tool output) are preserved and typically capture the key information, but some detail may be lost.
