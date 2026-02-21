@@ -10,6 +10,7 @@ import {
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import type { OpenClawConfig } from "../../../config/config.js";
+import { resolveToolResultGuardMode } from "../../../config/tool-result-guard.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { ensureGlobalUndiciStreamTimeouts } from "../../../infra/net/undici-global-dispatcher.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
@@ -118,7 +119,12 @@ import {
 } from "../system-prompt.js";
 import { dropThinkingBlocks } from "../thinking.js";
 import { collectAllowedToolNames } from "../tool-name-allowlist.js";
-import { installToolResultContextGuard } from "../tool-result-context-guard.js";
+import {
+  installToolResultContextGuard,
+  PREEMPTIVE_TOOL_RESULT_COMPACTION_PLACEHOLDER,
+  type ToolResultContextGuardHandle,
+} from "../tool-result-context-guard.js";
+import { persistToolResultCompaction } from "../tool-result-guard-persistence.js";
 import { splitSdkTools } from "../tool-split.js";
 import { describeUnknownError, mapThinkingLevel } from "../utils.js";
 import { flushPendingToolResultsAfterIdle } from "../wait-for-idle-before-flush.js";
@@ -1054,7 +1060,8 @@ export async function runEmbeddedAttempt(
 
     let sessionManager: ReturnType<typeof guardSessionManager> | undefined;
     let session: Awaited<ReturnType<typeof createAgentSession>>["session"] | undefined;
-    let removeToolResultContextGuard: (() => void) | undefined;
+    let toolResultGuardHandle: ToolResultContextGuardHandle | undefined;
+    let toolResultGuardMode: "default" | "disabled" | "persistent" = "default";
     try {
       await repairSessionFileIfNeeded({
         sessionFile: params.sessionFile,
@@ -1182,15 +1189,22 @@ export async function runEmbeddedAttempt(
         throw new Error("Embedded agent session missing");
       }
       const activeSession = session;
-      removeToolResultContextGuard = installToolResultContextGuard({
-        agent: activeSession.agent,
-        contextWindowTokens: Math.max(
-          1,
-          Math.floor(
-            params.model.contextWindow ?? params.model.maxTokens ?? DEFAULT_CONTEXT_TOKENS,
-          ),
-        ),
+      toolResultGuardMode = resolveToolResultGuardMode({
+        cfg: params.config,
+        agentId: sessionAgentId,
+        modelKey: `${params.provider}/${params.modelId}`,
       });
+      if (toolResultGuardMode !== "disabled") {
+        toolResultGuardHandle = installToolResultContextGuard({
+          agent: activeSession.agent,
+          contextWindowTokens: Math.max(
+            1,
+            Math.floor(
+              params.model.contextWindow ?? params.model.maxTokens ?? DEFAULT_CONTEXT_TOKENS,
+            ),
+          ),
+        });
+      }
       const cacheTrace = createCacheTrace({
         cfg: params.config,
         env: process.env,
@@ -2052,7 +2066,25 @@ export async function runEmbeddedAttempt(
       // flushPendingToolResults() fires while tools are still executing, inserting
       // synthetic "missing tool result" errors and causing silent agent failures.
       // See: https://github.com/openclaw/openclaw/issues/8643
-      removeToolResultContextGuard?.();
+      toolResultGuardHandle?.remove();
+
+      // Persist compacted tool results for KV cache stability.
+      if (toolResultGuardMode === "persistent" && toolResultGuardHandle) {
+        const compactedIds = toolResultGuardHandle.getCompactedToolCallIds();
+        if (compactedIds.size > 0) {
+          await persistToolResultCompaction({
+            sessionFile: params.sessionFile,
+            compactedToolCallIds: compactedIds,
+            placeholder: PREEMPTIVE_TOOL_RESULT_COMPACTION_PLACEHOLDER,
+            warn: (msg) => log.warn(msg),
+          }).catch((err: unknown) => {
+            log.warn(
+              `tool result guard persistence failed: ${err instanceof Error ? err.message : "unknown"}`,
+            );
+          });
+        }
+      }
+
       await flushPendingToolResultsAfterIdle({
         agent: session?.agent,
         sessionManager,
