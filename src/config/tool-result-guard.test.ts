@@ -140,4 +140,78 @@ describe("resolveToolResultGuardMode", () => {
       }),
     ).toBe("default");
   });
+
+  it("matches provider wildcard 'ollama/*'", () => {
+    expect(
+      resolveToolResultGuardMode({
+        cfg: cfg({
+          agents: {
+            defaults: {
+              models: {
+                "ollama/*": { toolResultGuard: { mode: "persistent" } },
+              },
+            },
+          },
+        }),
+        modelKey: "ollama/glm-4.7-flash",
+      }),
+    ).toBe("persistent");
+  });
+
+  it("exact model key takes priority over provider wildcard", () => {
+    expect(
+      resolveToolResultGuardMode({
+        cfg: cfg({
+          agents: {
+            defaults: {
+              models: {
+                "ollama/*": { toolResultGuard: { mode: "persistent" } },
+                "ollama/special": { toolResultGuard: { mode: "disabled" } },
+              },
+            },
+          },
+        }),
+        modelKey: "ollama/special",
+      }),
+    ).toBe("disabled");
+  });
+
+  it("provider wildcard does not match different provider", () => {
+    expect(
+      resolveToolResultGuardMode({
+        cfg: cfg({
+          agents: {
+            defaults: {
+              toolResultGuard: { mode: "default" },
+              models: {
+                "ollama/*": { toolResultGuard: { mode: "persistent" } },
+              },
+            },
+          },
+        }),
+        modelKey: "openai/gpt-4",
+      }),
+    ).toBe("default");
+  });
+
+  it("provider wildcard works in per-agent models", () => {
+    expect(
+      resolveToolResultGuardMode({
+        cfg: cfg({
+          agents: {
+            list: [
+              {
+                id: "bot",
+                models: {
+                  "local/*": { toolResultGuard: { mode: "disabled" } },
+                },
+              },
+            ],
+          },
+        }),
+        agentId: "bot",
+        modelKey: "local/my-model",
+      }),
+    ).toBe("disabled");
+  });
 });
