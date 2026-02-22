@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveToolResultGuardMode } from "./tool-result-guard.js";
+import { resolveToolResultGuardConfig, resolveToolResultGuardMode } from "./tool-result-guard.js";
 import type { OpenClawConfig } from "./types.openclaw.js";
 
 function cfg(overrides: Partial<OpenClawConfig> = {}): OpenClawConfig {
@@ -213,5 +213,83 @@ describe("resolveToolResultGuardMode", () => {
         modelKey: "local/my-model",
       }),
     ).toBe("disabled");
+  });
+});
+
+describe("resolveToolResultGuardConfig", () => {
+  it("returns undefined compactionTarget when not set", () => {
+    const result = resolveToolResultGuardConfig({});
+    expect(result).toEqual({ mode: "default", compactionTarget: undefined });
+  });
+
+  it("reads compactionTarget from global defaults", () => {
+    const result = resolveToolResultGuardConfig({
+      cfg: cfg({
+        agents: {
+          defaults: { toolResultGuard: { mode: "persistent", compactionTarget: 0.5 } },
+        },
+      }),
+    });
+    expect(result).toEqual({ mode: "persistent", compactionTarget: 0.5 });
+  });
+
+  it("per-model compactionTarget overrides global default", () => {
+    const result = resolveToolResultGuardConfig({
+      cfg: cfg({
+        agents: {
+          defaults: {
+            toolResultGuard: { mode: "persistent", compactionTarget: 0.6 },
+            models: {
+              "ollama/llama": { toolResultGuard: { compactionTarget: 0.4 } },
+            },
+          },
+        },
+      }),
+      modelKey: "ollama/llama",
+    });
+    expect(result.compactionTarget).toBe(0.4);
+  });
+
+  it("per-agent compactionTarget overrides global default", () => {
+    const result = resolveToolResultGuardConfig({
+      cfg: cfg({
+        agents: {
+          defaults: { toolResultGuard: { compactionTarget: 0.6 } },
+          list: [{ id: "bot", toolResultGuard: { compactionTarget: 0.3 } }],
+        },
+      }),
+      agentId: "bot",
+    });
+    expect(result.compactionTarget).toBe(0.3);
+  });
+
+  it("falls through to global when per-agent has no compactionTarget", () => {
+    const result = resolveToolResultGuardConfig({
+      cfg: cfg({
+        agents: {
+          defaults: { toolResultGuard: { compactionTarget: 0.5 } },
+          list: [{ id: "bot", toolResultGuard: { mode: "disabled" } }],
+        },
+      }),
+      agentId: "bot",
+    });
+    expect(result.mode).toBe("disabled");
+    expect(result.compactionTarget).toBe(0.5);
+  });
+
+  it("provider wildcard compactionTarget works", () => {
+    const result = resolveToolResultGuardConfig({
+      cfg: cfg({
+        agents: {
+          defaults: {
+            models: {
+              "ollama/*": { toolResultGuard: { compactionTarget: 0.4 } },
+            },
+          },
+        },
+      }),
+      modelKey: "ollama/glm-4.7-flash",
+    });
+    expect(result.compactionTarget).toBe(0.4);
   });
 });
