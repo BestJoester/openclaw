@@ -1,5 +1,9 @@
 import type { ChatType } from "../channels/chat-type.js";
-import type { AgentDefaultsConfig } from "./types.agent-defaults.js";
+import type {
+  AgentDefaultsConfig,
+  AgentModelEntryConfig,
+  ToolResultGuardConfig,
+} from "./types.agent-defaults.js";
 import type { HumanDelayConfig, IdentityConfig } from "./types.base.js";
 import type { GroupChatConfig } from "./types.messages.js";
 import type {
@@ -63,6 +67,10 @@ export type AgentConfig = {
     prune?: SandboxPruneSettings;
   };
   tools?: AgentToolsConfig;
+  /** Tool result context guard: controls automatic tool result compaction behavior. */
+  toolResultGuard?: ToolResultGuardConfig;
+  /** Per-agent model-specific overrides. Same structure as agents.defaults.models. */
+  models?: Record<string, AgentModelEntryConfig>;
 };
 
 export type AgentsConfig = {

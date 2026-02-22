@@ -294,10 +294,21 @@ function enforceToolResultContextBudgetInPlace(params: {
   });
 }
 
+export type ToolResultContextGuardHandle = {
+  /** Restore original transformContext. */
+  remove: () => void;
+  /** Tool call IDs that were compacted during this guard's lifetime. */
+  getCompactedToolCallIds: () => Set<string>;
+};
+
+function getToolCallId(msg: AgentMessage): string | undefined {
+  return (msg as { toolCallId?: unknown }).toolCallId as string | undefined;
+}
+
 export function installToolResultContextGuard(params: {
   agent: GuardableAgent;
   contextWindowTokens: number;
-}): () => void {
+}): ToolResultContextGuardHandle {
   const contextWindowTokens = Math.max(1, Math.floor(params.contextWindowTokens));
   const contextBudgetChars = Math.max(
     1_024,
@@ -309,6 +320,8 @@ export function installToolResultContextGuard(params: {
       contextWindowTokens * TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE * SINGLE_TOOL_RESULT_CONTEXT_SHARE,
     ),
   );
+
+  const compactedToolCallIds = new Set<string>();
 
   // Agent.transformContext is private in pi-coding-agent, so access it via a
   // narrow runtime view to keep callsites type-safe while preserving behavior.
@@ -327,10 +340,27 @@ export function installToolResultContextGuard(params: {
       maxSingleToolResultChars,
     });
 
+    // Track which tool results were compacted (by toolCallId).
+    for (const msg of contextMessages) {
+      if (!isToolResultMessage(msg)) {
+        continue;
+      }
+      const text = getToolResultText(msg);
+      if (text === PREEMPTIVE_TOOL_RESULT_COMPACTION_PLACEHOLDER) {
+        const id = getToolCallId(msg);
+        if (id) {
+          compactedToolCallIds.add(id);
+        }
+      }
+    }
+
     return contextMessages;
   }) as GuardableTransformContext;
 
-  return () => {
-    mutableAgent.transformContext = originalTransformContext;
+  return {
+    remove: () => {
+      mutableAgent.transformContext = originalTransformContext;
+    },
+    getCompactedToolCallIds: () => compactedToolCallIds,
   };
 }
