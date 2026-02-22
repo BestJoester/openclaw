@@ -237,6 +237,51 @@ describe("installToolResultContextGuard", () => {
     expect(newResultText).toBe(PREEMPTIVE_TOOL_RESULT_COMPACTION_PLACEHOLDER);
   });
 
+  it("compacts more tool results when compactionTarget is lower than default", async () => {
+    // contextWindowTokens = 1000
+    // Budget (trigger) = 1000 * 4 * 0.75 = 3000 chars
+    // Tool result char estimate is weighted 2x (CHARS_PER_TOKEN / TOOL_RESULT_CHARS_PER_TOKEN)
+    //
+    // Context: user(500) + tool1(1100 text → 2200 weighted) + tool2(400 → 800) + tool3(400 → 800)
+    // Total: 500 + 2200 + 800 + 800 = 4300 chars (over 3000 budget)
+    //
+    // Default target (0.75) = 3000 → need to free 1300 → compacting tool1 frees ~2100 → done.
+    // Lower target (0.50) = 2000 → need to free 2300 → compacting tool1 frees ~2100 → still short,
+    //   compact tool2 frees ~700 more → done.
+
+    // With default (no compactionTarget): only tool1 compacted
+    const agentDefault = makeGuardableAgent();
+    installToolResultContextGuard({ agent: agentDefault, contextWindowTokens: 1_000 });
+    const ctxDefault = [
+      makeUser("u".repeat(500)),
+      makeToolResult("call_1", "a".repeat(1_100)),
+      makeToolResult("call_2", "b".repeat(400)),
+      makeToolResult("call_3", "c".repeat(400)),
+    ];
+    await agentDefault.transformContext?.(ctxDefault, new AbortController().signal);
+    expect(getToolResultText(ctxDefault[1])).toBe(PREEMPTIVE_TOOL_RESULT_COMPACTION_PLACEHOLDER);
+    expect(getToolResultText(ctxDefault[2])).toBe("b".repeat(400)); // preserved
+    expect(getToolResultText(ctxDefault[3])).toBe("c".repeat(400)); // preserved
+
+    // With compactionTarget 0.50: tools 1 and 2 compacted
+    const agentAggressive = makeGuardableAgent();
+    installToolResultContextGuard({
+      agent: agentAggressive,
+      contextWindowTokens: 1_000,
+      compactionTarget: 0.5,
+    });
+    const ctxAggressive = [
+      makeUser("u".repeat(500)),
+      makeToolResult("call_1", "a".repeat(1_100)),
+      makeToolResult("call_2", "b".repeat(400)),
+      makeToolResult("call_3", "c".repeat(400)),
+    ];
+    await agentAggressive.transformContext?.(ctxAggressive, new AbortController().signal);
+    expect(getToolResultText(ctxAggressive[1])).toBe(PREEMPTIVE_TOOL_RESULT_COMPACTION_PLACEHOLDER);
+    expect(getToolResultText(ctxAggressive[2])).toBe(PREEMPTIVE_TOOL_RESULT_COMPACTION_PLACEHOLDER); // also compacted
+    expect(getToolResultText(ctxAggressive[3])).toBe("c".repeat(400)); // preserved
+  });
+
   it("drops oversized read-tool details payloads when compacting tool results", async () => {
     const agent = makeGuardableAgent();
 
