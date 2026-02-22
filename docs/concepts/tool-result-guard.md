@@ -71,6 +71,31 @@ agents:
             mode: "persistent"
 ```
 
+## Compaction target
+
+By default, when compaction fires (at 75% context utilization), the guard frees _just enough_ space to get back under budget. With multiple large tool results, this causes back-to-back compaction triggers: each new turn crosses the threshold again, compacts one more result, and invalidates the KV cache each time.
+
+The `compactionTarget` parameter controls the **target utilization after compaction fires**. The trigger stays at 75%, but once triggered, the guard compacts down to the target ratio, creating headroom so subsequent turns don't immediately re-trigger.
+
+```yaml
+agents:
+  defaults:
+    toolResultGuard:
+      mode: "persistent"
+      compactionTarget: 0.50 # compact down to 50% when triggered
+```
+
+| `compactionTarget`     | Trigger at | Compacts down to | Headroom created |
+| ---------------------- | ---------- | ---------------- | ---------------- |
+| Not set (default 0.75) | 75%        | ~75%             | ~0%              |
+| `0.60`                 | 75%        | ~60%             | ~15% of window   |
+| `0.50`                 | 75%        | ~50%             | ~25% of window   |
+| `0.40`                 | 75%        | ~40%             | ~35% of window   |
+
+Lower values free more space per compaction event, reducing the frequency of cache invalidations at the cost of compacting more tool results sooner. If there aren't enough tool results to reach the target, the guard compacts all available tool results and stops.
+
+The `compactionTarget` follows the same config hierarchy as `mode` — it can be set globally, per-model, per-agent, or per-agent+per-model.
+
 ## Provider wildcards
 
 Model keys support provider-level wildcards like `"ollama/*"` to match any model under that provider. Exact model keys always take priority over wildcards.

@@ -5,6 +5,11 @@ import type {
 } from "./types.agent-defaults.js";
 import type { OpenClawConfig } from "./types.openclaw.js";
 
+export type ResolvedToolResultGuardConfig = {
+  mode: ToolResultGuardMode;
+  compactionTarget: number | undefined;
+};
+
 /**
  * Look up toolResultGuard from a models map, trying exact key first,
  * then a provider wildcard ("provider/*").
@@ -31,23 +36,23 @@ function lookupModelGuard(
 }
 
 /**
- * Resolve the tool result guard mode for a given agent + model combination.
+ * Resolve the full tool result guard config for a given agent + model combination.
  *
- * Resolution order (most specific wins):
+ * Resolution order (most specific wins, checked independently per field):
  * 1. agents.list[agentId].models[modelKey].toolResultGuard  (exact, then provider/*)
  * 2. agents.list[agentId].toolResultGuard
  * 3. agents.defaults.models[modelKey].toolResultGuard  (exact, then provider/*)
  * 4. agents.defaults.toolResultGuard
- * 5. Not set: returns "default"
+ * 5. Not set: mode="default", compactionTarget=undefined
  */
-export function resolveToolResultGuardMode(params: {
+export function resolveToolResultGuardConfig(params: {
   cfg?: OpenClawConfig;
   agentId?: string;
   modelKey?: string;
-}): ToolResultGuardMode {
+}): ResolvedToolResultGuardConfig {
   const { cfg, agentId, modelKey } = params;
   if (!cfg?.agents) {
-    return "default";
+    return { mode: "default", compactionTarget: undefined };
   }
 
   const defaults = cfg.agents.defaults;
@@ -65,5 +70,23 @@ export function resolveToolResultGuardMode(params: {
   ];
 
   const effective = candidates.find((c) => c !== undefined);
-  return effective?.mode ?? "default";
+  const compactionTargetCandidate = candidates.find((c) => c?.compactionTarget !== undefined);
+
+  return {
+    mode: effective?.mode ?? "default",
+    compactionTarget: compactionTargetCandidate?.compactionTarget,
+  };
+}
+
+/**
+ * Resolve the tool result guard mode for a given agent + model combination.
+ *
+ * @see resolveToolResultGuardConfig for full config resolution.
+ */
+export function resolveToolResultGuardMode(params: {
+  cfg?: OpenClawConfig;
+  agentId?: string;
+  modelKey?: string;
+}): ToolResultGuardMode {
+  return resolveToolResultGuardConfig(params).mode;
 }
