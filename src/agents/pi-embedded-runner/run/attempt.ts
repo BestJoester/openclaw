@@ -6,7 +6,7 @@ import { streamSimple } from "@mariozechner/pi-ai";
 import { createAgentSession, SessionManager, SettingsManager } from "@mariozechner/pi-coding-agent";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
-import { resolveToolResultGuardMode } from "../../../config/tool-result-guard.js";
+import { resolveToolResultGuardConfig } from "../../../config/tool-result-guard.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
@@ -596,11 +596,12 @@ export async function runEmbeddedAttempt(
         throw new Error("Embedded agent session missing");
       }
       const activeSession = session;
-      toolResultGuardMode = resolveToolResultGuardMode({
+      const guardConfig = resolveToolResultGuardConfig({
         cfg: params.config,
         agentId: sessionAgentId,
         modelKey: `${params.provider}/${params.modelId}`,
       });
+      toolResultGuardMode = guardConfig.mode;
       if (toolResultGuardMode !== "disabled") {
         toolResultGuardHandle = installToolResultContextGuard({
           agent: activeSession.agent,
@@ -610,6 +611,7 @@ export async function runEmbeddedAttempt(
               params.model.contextWindow ?? params.model.maxTokens ?? DEFAULT_CONTEXT_TOKENS,
             ),
           ),
+          compactionTarget: guardConfig.compactionTarget,
         });
       }
       const cacheTrace = createCacheTrace({

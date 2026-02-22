@@ -269,9 +269,10 @@ function applyMessageMutationInPlace(target: AgentMessage, source: AgentMessage)
 function enforceToolResultContextBudgetInPlace(params: {
   messages: AgentMessage[];
   contextBudgetChars: number;
+  compactionTargetChars: number;
   maxSingleToolResultChars: number;
 }): void {
-  const { messages, contextBudgetChars, maxSingleToolResultChars } = params;
+  const { messages, contextBudgetChars, compactionTargetChars, maxSingleToolResultChars } = params;
 
   // Ensure each tool result has an upper bound before considering total context usage.
   for (const message of messages) {
@@ -287,10 +288,11 @@ function enforceToolResultContextBudgetInPlace(params: {
     return;
   }
 
-  // Compact oldest tool outputs first until the context is back under budget.
+  // Compact oldest tool outputs first. When compactionTargetChars < contextBudgetChars,
+  // this frees extra headroom so subsequent turns are less likely to re-trigger compaction.
   compactExistingToolResultsInPlace({
     messages,
-    charsNeeded: currentChars - contextBudgetChars,
+    charsNeeded: currentChars - compactionTargetChars,
   });
 }
 
@@ -308,11 +310,18 @@ function getToolCallId(msg: AgentMessage): string | undefined {
 export function installToolResultContextGuard(params: {
   agent: GuardableAgent;
   contextWindowTokens: number;
+  /** Target utilization ratio after compaction (0.01–1.0). Defaults to CONTEXT_INPUT_HEADROOM_RATIO. */
+  compactionTarget?: number;
 }): ToolResultContextGuardHandle {
   const contextWindowTokens = Math.max(1, Math.floor(params.contextWindowTokens));
   const contextBudgetChars = Math.max(
     1_024,
     Math.floor(contextWindowTokens * CHARS_PER_TOKEN_ESTIMATE * CONTEXT_INPUT_HEADROOM_RATIO),
+  );
+  const effectiveTarget = params.compactionTarget ?? CONTEXT_INPUT_HEADROOM_RATIO;
+  const compactionTargetChars = Math.max(
+    1_024,
+    Math.floor(contextWindowTokens * CHARS_PER_TOKEN_ESTIMATE * effectiveTarget),
   );
   const maxSingleToolResultChars = Math.max(
     1_024,
@@ -337,6 +346,7 @@ export function installToolResultContextGuard(params: {
     enforceToolResultContextBudgetInPlace({
       messages: contextMessages,
       contextBudgetChars,
+      compactionTargetChars,
       maxSingleToolResultChars,
     });
 

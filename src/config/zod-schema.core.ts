@@ -519,6 +519,7 @@ export const ToolResultGuardSchema = z
     mode: z
       .union([z.literal("default"), z.literal("disabled"), z.literal("persistent")])
       .optional(),
+    compactionTarget: z.number().min(0.01).max(1.0).optional(),
   })
   .strict()
   .optional();

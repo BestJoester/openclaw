@@ -29,6 +29,13 @@ export type ToolResultGuardConfig = {
    * - `"persistent"`: Compaction is persisted to the session file for KV cache stability
    */
   mode?: ToolResultGuardMode;
+  /**
+   * Target context utilization ratio after compaction fires (0.01–1.0).
+   * Lower values free more space, reducing back-to-back cache invalidations.
+   * Default: 0.75 (same as trigger threshold — compact just enough to get under budget).
+   * Example: 0.50 means "when compaction fires at 75%, compact down to 50%".
+   */
+  compactionTarget?: number;
 };
 
 export type AgentModelEntryConfig = {
