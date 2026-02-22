@@ -80,6 +80,7 @@ export type AgentsConfig = {
 
 export type AgentBinding = {
   agentId: string;
+  comment?: string;
   match: {
     channel: string;
     accountId?: string;

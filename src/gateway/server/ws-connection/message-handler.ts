@@ -80,7 +80,7 @@ import {
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
-const DEVICE_SIGNATURE_SKEW_MS = 10 * 60 * 1000;
+const DEVICE_SIGNATURE_SKEW_MS = 2 * 60 * 1000;
 
 export function attachGatewayWsMessageHandler(params: {
   socket: WebSocket;
@@ -528,13 +528,12 @@ export function attachGatewayWsMessageHandler(params: {
             rejectDeviceAuthInvalid("device-signature-stale", "device signature expired");
             return;
           }
-          const nonceRequired = !isLocalClient;
           const providedNonce = typeof device.nonce === "string" ? device.nonce.trim() : "";
-          if (nonceRequired && !providedNonce) {
+          if (!providedNonce) {
             rejectDeviceAuthInvalid("device-nonce-missing", "device nonce required");
             return;
           }
-          if (providedNonce && providedNonce !== connectNonce) {
+          if (providedNonce !== connectNonce) {
             rejectDeviceAuthInvalid("device-nonce-mismatch", "device nonce mismatch");
             return;
           }
@@ -546,31 +545,12 @@ export function attachGatewayWsMessageHandler(params: {
             scopes,
             signedAtMs: signedAt,
             token: connectParams.auth?.token ?? null,
-            nonce: providedNonce || undefined,
-            version: providedNonce ? "v2" : "v1",
+            nonce: providedNonce,
           });
           const rejectDeviceSignatureInvalid = () =>
             rejectDeviceAuthInvalid("device-signature", "device signature invalid");
           const signatureOk = verifyDeviceSignature(device.publicKey, payload, device.signature);
-          const allowLegacy = !nonceRequired && !providedNonce;
-          if (!signatureOk && allowLegacy) {
-            const legacyPayload = buildDeviceAuthPayload({
-              deviceId: device.id,
-              clientId: connectParams.client.id,
-              clientMode: connectParams.client.mode,
-              role,
-              scopes,
-              signedAtMs: signedAt,
-              token: connectParams.auth?.token ?? null,
-              version: "v1",
-            });
-            if (verifyDeviceSignature(device.publicKey, legacyPayload, device.signature)) {
-              // accepted legacy loopback signature
-            } else {
-              rejectDeviceSignatureInvalid();
-              return;
-            }
-          } else if (!signatureOk) {
+          if (!signatureOk) {
             rejectDeviceSignatureInvalid();
             return;
           }
@@ -642,19 +622,22 @@ export function attachGatewayWsMessageHandler(params: {
               `security audit: device access upgrade requested reason=${reason} device=${device.id} ip=${reportedClientIp ?? "unknown-ip"} auth=${authMethod} roleFrom=${formatAuditList(currentRoles)} roleTo=${role} scopesFrom=${formatAuditList(currentScopes)} scopesTo=${formatAuditList(scopes)} client=${connectParams.client.id} conn=${connId}`,
             );
           };
+          const clientAccessMetadata = {
+            displayName: connectParams.client.displayName,
+            platform: connectParams.client.platform,
+            clientId: connectParams.client.id,
+            clientMode: connectParams.client.mode,
+            role,
+            scopes,
+            remoteIp: reportedClientIp,
+          };
           const requirePairing = async (
             reason: "not-paired" | "role-upgrade" | "scope-upgrade",
           ) => {
             const pairing = await requestDevicePairing({
               deviceId: device.id,
               publicKey: devicePublicKey,
-              displayName: connectParams.client.displayName,
-              platform: connectParams.client.platform,
-              clientId: connectParams.client.id,
-              clientMode: connectParams.client.mode,
-              role,
-              scopes,
-              remoteIp: reportedClientIp,
+              ...clientAccessMetadata,
               silent: isLocalClient && reason === "not-paired",
             });
             const context = buildRequestContext();
@@ -755,15 +738,7 @@ export function attachGatewayWsMessageHandler(params: {
               }
             }
 
-            await updatePairedDeviceMetadata(device.id, {
-              displayName: connectParams.client.displayName,
-              platform: connectParams.client.platform,
-              clientId: connectParams.client.id,
-              clientMode: connectParams.client.mode,
-              role,
-              scopes,
-              remoteIp: reportedClientIp,
-            });
+            await updatePairedDeviceMetadata(device.id, clientAccessMetadata);
           }
         }
 
@@ -844,8 +819,6 @@ export function attachGatewayWsMessageHandler(params: {
           protocol: PROTOCOL_VERSION,
           server: {
             version: resolveRuntimeServiceVersion(process.env, "dev"),
-            commit: process.env.GIT_COMMIT,
-            host: os.hostname(),
             connId,
           },
           features: { methods: gatewayMethods, events },
