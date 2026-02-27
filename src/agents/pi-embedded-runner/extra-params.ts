@@ -58,6 +58,19 @@ export const __testing = {
   },
 };
 
+// Keys already handled by existing logic — must NOT be forwarded as custom params.
+const HANDLED_PARAM_KEYS = new Set([
+  "temperature",
+  "maxTokens",
+  "transport",
+  "cacheRetention",
+  "cacheControlTtl",
+  "provider", // OpenRouter routing
+  "anthropicBeta",
+  "context1m",
+  "tool_stream", // Z.AI
+]);
+
 /**
  * Resolve provider-specific extra params from model config.
  * Used to pass through stream params like temperature/maxTokens.
@@ -616,6 +629,48 @@ function applyPostPluginStreamWrappers(
 }
 
 /**
+ * Extract params not already handled by dedicated logic (temperature, maxTokens,
+ * transport, cacheRetention, anthropicBeta, etc.). The remaining key-value pairs
+ * are forwarded directly into the API request body via onPayload, enabling
+ * sampling/penalty parameters like top_p, top_k, min_p, repeat_penalty, seed, etc.
+ */
+function extractCustomParams(
+  extraParams: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const custom: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(extraParams)) {
+    if (!HANDLED_PARAM_KEYS.has(key) && value !== undefined) {
+      custom[key] = value;
+    }
+  }
+  return Object.keys(custom).length > 0 ? custom : undefined;
+}
+
+/**
+ * Wrap a streamFn to inject custom params into the request payload via onPayload.
+ * Same hook pattern used by createZaiToolStreamWrapper and
+ * createOpenAIResponsesStoreWrapper.
+ */
+function createCustomParamsWrapper(
+  baseStreamFn: StreamFn | undefined,
+  customParams: Record<string, unknown>,
+): StreamFn {
+  const underlying = baseStreamFn ?? streamSimple;
+  return (model, context, options) => {
+    const originalOnPayload = options?.onPayload;
+    return underlying(model, context, {
+      ...options,
+      onPayload: (payload, payloadModel) => {
+        if (payload && typeof payload === "object") {
+          Object.assign(payload, customParams);
+        }
+        return originalOnPayload?.(payload, payloadModel);
+      },
+    });
+  };
+}
+
+/**
  * Apply extra params (like temperature) to an agent's streamFn.
  * Also applies verified provider-specific request wrappers, such as OpenRouter attribution.
  *
@@ -700,6 +755,17 @@ export function applyExtraParamsToAgent(
     ...wrapperContext,
     providerWrapperHandled,
   });
+
+  // Forward any unrecognized params directly into the API request body.
+  // This enables sampling/penalty parameters (top_p, top_k, min_p, seed, etc.)
+  // for local OpenAI-compatible servers (llama.cpp, vLLM, etc.).
+  const customParams = extractCustomParams(effectiveExtraParams);
+  if (customParams) {
+    log.debug(
+      `applying custom request params for ${provider}/${modelId}: ${JSON.stringify(customParams)}`,
+    );
+    agent.streamFn = createCustomParamsWrapper(agent.streamFn, customParams);
+  }
 
   return { effectiveExtraParams };
 }
