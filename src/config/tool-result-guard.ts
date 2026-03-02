@@ -11,8 +11,18 @@ export type ResolvedToolResultGuardConfig = {
 };
 
 /**
+ * Simple glob match supporting `*` as a wildcard for zero or more characters.
+ * Used for model key patterns like "local/qwen3.5*", "ollama/*", etc.
+ */
+function globMatch(pattern: string, value: string): boolean {
+  // Convert glob pattern to regex: escape special chars, replace * with .*
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`).test(value);
+}
+
+/**
  * Look up toolResultGuard from a models map, trying exact key first,
- * then a provider wildcard ("provider/*").
+ * then glob patterns (most specific first by length), then provider wildcard.
  */
 function lookupModelGuard(
   models: Record<string, AgentModelEntryConfig> | undefined,
@@ -26,11 +36,18 @@ function lookupModelGuard(
   if (exact !== undefined) {
     return exact;
   }
-  // Provider wildcard: "ollama/*" matches "ollama/llama", "ollama/glm-4.7-flash", etc.
-  const slash = modelKey.indexOf("/");
-  if (slash > 0) {
-    const wildcard = `${modelKey.slice(0, slash)}/*`;
-    return models[wildcard]?.toolResultGuard;
+  // Glob patterns: try all keys containing * (longest pattern first for specificity).
+  // "local/qwen3.5*" is more specific than "local/*", so it wins.
+  const globKeys = Object.keys(models)
+    .filter((k) => k.includes("*"))
+    .toSorted((a, b) => b.length - a.length);
+  for (const pattern of globKeys) {
+    if (globMatch(pattern, modelKey)) {
+      const guard = models[pattern]?.toolResultGuard;
+      if (guard !== undefined) {
+        return guard;
+      }
+    }
   }
   return undefined;
 }

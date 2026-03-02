@@ -214,6 +214,98 @@ describe("resolveToolResultGuardMode", () => {
       }),
     ).toBe("disabled");
   });
+
+  it("matches glob pattern 'local/qwen3.5*'", () => {
+    expect(
+      resolveToolResultGuardMode({
+        cfg: cfg({
+          agents: {
+            defaults: {
+              models: {
+                "local/qwen3.5*": { toolResultGuard: { mode: "disabled" } },
+              },
+            },
+          },
+        }),
+        modelKey: "local/qwen3.5-27b-struct-ud-q6-k-xl",
+      }),
+    ).toBe("disabled");
+  });
+
+  it("more specific glob pattern wins over broader one", () => {
+    expect(
+      resolveToolResultGuardMode({
+        cfg: cfg({
+          agents: {
+            defaults: {
+              models: {
+                "local/*": { toolResultGuard: { mode: "persistent" } },
+                "local/qwen3.5*": { toolResultGuard: { mode: "disabled" } },
+              },
+            },
+          },
+        }),
+        modelKey: "local/qwen3.5-27b-struct-ud-q6-k-xl",
+      }),
+    ).toBe("disabled");
+  });
+
+  it("broader glob still matches non-specific models", () => {
+    expect(
+      resolveToolResultGuardMode({
+        cfg: cfg({
+          agents: {
+            defaults: {
+              models: {
+                "local/*": { toolResultGuard: { mode: "persistent" } },
+                "local/qwen3.5*": { toolResultGuard: { mode: "disabled" } },
+              },
+            },
+          },
+        }),
+        modelKey: "local/llama-70b",
+      }),
+    ).toBe("persistent");
+  });
+
+  it("exact match takes priority over glob pattern", () => {
+    expect(
+      resolveToolResultGuardMode({
+        cfg: cfg({
+          agents: {
+            defaults: {
+              models: {
+                "local/qwen3.5*": { toolResultGuard: { mode: "disabled" } },
+                "local/qwen3.5-special": { toolResultGuard: { mode: "persistent" } },
+              },
+            },
+          },
+        }),
+        modelKey: "local/qwen3.5-special",
+      }),
+    ).toBe("persistent");
+  });
+
+  it("glob pattern works in per-agent models", () => {
+    expect(
+      resolveToolResultGuardMode({
+        cfg: cfg({
+          agents: {
+            list: [
+              {
+                id: "bot",
+                models: {
+                  "local/qwen*": { toolResultGuard: { mode: "disabled" } },
+                },
+              },
+            ],
+          },
+        }),
+        agentId: "bot",
+        modelKey: "local/qwen3.5-27b",
+      }),
+    ).toBe("disabled");
+  });
 });
 
 describe("resolveToolResultGuardConfig", () => {
