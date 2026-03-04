@@ -16,7 +16,6 @@ import { hasControlCommand } from "openclaw/plugin-sdk/command-detection";
 import { resolveControlCommandGate } from "openclaw/plugin-sdk/command-gating";
 import { shouldHandleTextCommands } from "openclaw/plugin-sdk/command-surface";
 import { formatErrorMessage } from "openclaw/plugin-sdk/error-runtime";
-import { enqueueSystemEvent } from "openclaw/plugin-sdk/infra-runtime";
 import { finalizeInboundContext } from "openclaw/plugin-sdk/reply-dispatch-runtime";
 import {
   buildPendingHistoryContextFromMap,
@@ -573,19 +572,11 @@ export async function prepareSlackMessage(params: {
   const senderName = await resolveSenderName();
   const chatType = resolveSlackChatType(conversation.resolvedChannelType);
   const preview = rawBody.replace(/\s+/g, " ").slice(0, 160);
-  const inboundLabel = isDirectMessage
-    ? `Slack DM from ${senderName}`
-    : `Slack message in ${roomLabel} from ${senderName}`;
   const slackFrom = isDirectMessage
     ? `slack:${message.user}`
     : isRoom
       ? `slack:channel:${message.channel}`
       : `slack:group:${message.channel}`;
-
-  enqueueSystemEvent(`${inboundLabel}: ${preview}`, {
-    sessionKey,
-    contextKey: `slack:message:${message.channel}:${message.ts ?? "unknown"}`,
-  });
 
   const envelopeFrom =
     resolveConversationLabel({
