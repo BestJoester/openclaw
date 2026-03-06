@@ -277,6 +277,65 @@ function normalizeToolCallNameForDispatch(rawName: string, allowedToolNames?: Se
   return caseInsensitiveMatch ?? trimmed;
 }
 
+function decodeHtmlEntities(value: string): string {
+  return value.replace(
+    /&(?:amp|lt|gt|quot|apos|#39|#x27|#x2F|#47|#x60|#96|#x3D|#61);|&#\d+;|&#x[0-9a-f]+;/gi,
+    (entity) => {
+      const lowered = entity.toLowerCase();
+      switch (lowered) {
+        case "&amp;":
+          return "&";
+        case "&lt;":
+          return "<";
+        case "&gt;":
+          return ">";
+        case "&quot;":
+          return '"';
+        case "&apos;":
+        case "&#39;":
+        case "&#x27;":
+          return "'";
+        case "&#x2f;":
+        case "&#47;":
+          return "/";
+        case "&#x60;":
+        case "&#96;":
+          return "`";
+        case "&#x3d;":
+        case "&#61;":
+          return "=";
+      }
+      if (/^&#\d+;$/i.test(entity)) {
+        const codePoint = Number.parseInt(entity.slice(2, -1), 10);
+        return Number.isNaN(codePoint) ? entity : String.fromCodePoint(codePoint);
+      }
+      if (/^&#x[0-9a-f]+;$/i.test(entity)) {
+        const codePoint = Number.parseInt(entity.slice(3, -1), 16);
+        return Number.isNaN(codePoint) ? entity : String.fromCodePoint(codePoint);
+      }
+      return entity;
+    },
+  );
+}
+
+function decodeHtmlEntitiesDeep(value: unknown): unknown {
+  if (typeof value === "string") {
+    return decodeHtmlEntities(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((entry) => decodeHtmlEntitiesDeep(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [
+        key,
+        decodeHtmlEntitiesDeep(entry),
+      ]),
+    );
+  }
+  return value;
+}
+
 function isToolCallBlockType(type: unknown): boolean {
   return type === "toolCall" || type === "toolUse" || type === "functionCall";
 }
@@ -353,6 +412,7 @@ export function resolveOllamaBaseUrlForRun(params: {
 function trimWhitespaceFromToolCallNamesInMessage(
   message: unknown,
   allowedToolNames?: Set<string>,
+  decodeHtmlEntitiesInArguments = false,
 ): void {
   if (!message || typeof message !== "object") {
     return;
@@ -365,26 +425,108 @@ function trimWhitespaceFromToolCallNamesInMessage(
     if (!block || typeof block !== "object") {
       continue;
     }
-    const typedBlock = block as { type?: unknown; name?: unknown };
-    if (typedBlock.type !== "toolCall" || typeof typedBlock.name !== "string") {
+    const typedBlock = block as {
+      type?: unknown;
+      name?: unknown;
+      arguments?: unknown;
+      input?: unknown;
+    };
+    if (!isToolCallBlockType(typedBlock.type)) {
       continue;
     }
-    const normalized = normalizeToolCallNameForDispatch(typedBlock.name, allowedToolNames);
-    if (normalized !== typedBlock.name) {
-      typedBlock.name = normalized;
+    if (typedBlock.type === "toolCall" && typeof typedBlock.name === "string") {
+      const normalized = normalizeToolCallNameForDispatch(typedBlock.name, allowedToolNames);
+      if (normalized !== typedBlock.name) {
+        typedBlock.name = normalized;
+      }
+    }
+    if (decodeHtmlEntitiesInArguments) {
+      if (typeof typedBlock.arguments === "string") {
+        typedBlock.arguments = decodeHtmlEntities(typedBlock.arguments);
+      } else {
+        typedBlock.arguments = decodeHtmlEntitiesDeep(typedBlock.arguments);
+      }
+      if (typeof typedBlock.input === "string") {
+        typedBlock.input = decodeHtmlEntities(typedBlock.input);
+      } else {
+        typedBlock.input = decodeHtmlEntitiesDeep(typedBlock.input);
+      }
     }
   }
   normalizeToolCallIdsInMessage(message);
 }
 
+function cloneUnknown<T>(value: T): T {
+  try {
+    return structuredClone(value);
+  } catch {
+    try {
+      return JSON.parse(JSON.stringify(value)) as T;
+    } catch {
+      return value;
+    }
+  }
+}
+
+function getToolCallBlocksFromContent(content: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(content)) {
+    return [];
+  }
+  const toolCalls: Array<Record<string, unknown>> = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") {
+      continue;
+    }
+    const type = (block as { type?: unknown }).type;
+    if (isToolCallBlockType(type)) {
+      toolCalls.push(block as Record<string, unknown>);
+    }
+  }
+  return toolCalls;
+}
+
+function preserveMonotonicToolCallsInPartialMessage(
+  currentPartial: unknown,
+  previousPartial: unknown,
+): void {
+  if (!currentPartial || typeof currentPartial !== "object") {
+    return;
+  }
+  if (!previousPartial || typeof previousPartial !== "object") {
+    return;
+  }
+
+  const currentContent = (currentPartial as { content?: unknown }).content;
+  const previousContent = (previousPartial as { content?: unknown }).content;
+  if (!Array.isArray(currentContent) || !Array.isArray(previousContent)) {
+    return;
+  }
+
+  const currentToolCalls = getToolCallBlocksFromContent(currentContent);
+  const previousToolCalls = getToolCallBlocksFromContent(previousContent);
+  if (currentToolCalls.length >= previousToolCalls.length || previousToolCalls.length === 0) {
+    return;
+  }
+
+  const missingCalls = previousToolCalls.slice(currentToolCalls.length).map((block) => cloneUnknown(block));
+  if (missingCalls.length > 0) {
+    currentContent.push(...missingCalls);
+  }
+}
+
 function wrapStreamTrimToolCallNames(
   stream: ReturnType<typeof streamSimple>,
   allowedToolNames?: Set<string>,
+  decodeHtmlEntitiesInArguments = false,
 ): ReturnType<typeof streamSimple> {
   const originalResult = stream.result.bind(stream);
   stream.result = async () => {
     const message = await originalResult();
-    trimWhitespaceFromToolCallNamesInMessage(message, allowedToolNames);
+    trimWhitespaceFromToolCallNamesInMessage(
+      message,
+      allowedToolNames,
+      decodeHtmlEntitiesInArguments,
+    );
     return message;
   };
 
@@ -392,6 +534,7 @@ function wrapStreamTrimToolCallNames(
   (stream as { [Symbol.asyncIterator]: typeof originalAsyncIterator })[Symbol.asyncIterator] =
     function () {
       const iterator = originalAsyncIterator();
+      let previousPartialMessage: unknown;
       return {
         async next() {
           const result = await iterator.next();
@@ -400,8 +543,20 @@ function wrapStreamTrimToolCallNames(
               partial?: unknown;
               message?: unknown;
             };
-            trimWhitespaceFromToolCallNamesInMessage(event.partial, allowedToolNames);
-            trimWhitespaceFromToolCallNamesInMessage(event.message, allowedToolNames);
+            trimWhitespaceFromToolCallNamesInMessage(
+              event.partial,
+              allowedToolNames,
+              decodeHtmlEntitiesInArguments,
+            );
+            preserveMonotonicToolCallsInPartialMessage(event.partial, previousPartialMessage);
+            if (event.partial && typeof event.partial === "object") {
+              previousPartialMessage = cloneUnknown(event.partial);
+            }
+            trimWhitespaceFromToolCallNamesInMessage(
+              event.message,
+              allowedToolNames,
+              decodeHtmlEntitiesInArguments,
+            );
           }
           return result;
         },
@@ -420,15 +575,20 @@ function wrapStreamTrimToolCallNames(
 export function wrapStreamFnTrimToolCallNames(
   baseFn: StreamFn,
   allowedToolNames?: Set<string>,
+  decodeHtmlEntitiesInArguments = false,
 ): StreamFn {
   return (model, context, options) => {
     const maybeStream = baseFn(model, context, options);
     if (maybeStream && typeof maybeStream === "object" && "then" in maybeStream) {
       return Promise.resolve(maybeStream).then((stream) =>
-        wrapStreamTrimToolCallNames(stream, allowedToolNames),
+        wrapStreamTrimToolCallNames(stream, allowedToolNames, decodeHtmlEntitiesInArguments),
       );
     }
-    return wrapStreamTrimToolCallNames(maybeStream, allowedToolNames);
+    return wrapStreamTrimToolCallNames(
+      maybeStream,
+      allowedToolNames,
+      decodeHtmlEntitiesInArguments,
+    );
   };
 }
 
@@ -1376,6 +1536,7 @@ export async function runEmbeddedAttempt(
       activeSession.agent.streamFn = wrapStreamFnTrimToolCallNames(
         activeSession.agent.streamFn,
         allowedToolNames,
+        isXaiProvider(params.provider, params.modelId),
       );
 
       if (isXaiProvider(params.provider, params.modelId)) {
