@@ -142,6 +142,78 @@ vLLM, LiteLLM, OAI-proxy, or custom gateways work if they expose an OpenAI-style
 
 Keep `models.mode: "merge"` so hosted models stay available as fallbacks.
 
+## Sampling parameters
+
+Local servers (llama.cpp, vLLM, LiteLLM, etc.) support sampling and penalty parameters beyond `temperature` and `maxTokens`. Any key in `params` that OpenClaw doesn't handle internally is forwarded directly into the API request body.
+
+```json5
+{
+  agents: {
+    defaults: {
+      models: {
+        "local/my-local-model": {
+          params: {
+            temperature: 0.7,
+            top_p: 0.9,
+            top_k: 40,
+            min_p: 0.05,
+            repeat_penalty: 1.1,
+            seed: 42,
+          },
+        },
+      },
+    },
+  },
+}
+```
+
+### Standard OpenAI-compatible parameters
+
+| Parameter           | Type    | Description                                    |
+| ------------------- | ------- | ---------------------------------------------- |
+| `top_p`             | float   | Nucleus sampling threshold (1.0 = disabled)    |
+| `frequency_penalty` | float   | Penalizes tokens by frequency (0.0 = disabled) |
+| `presence_penalty`  | float   | Flat penalty for tokens appearing in context   |
+| `seed`              | integer | RNG seed for deterministic sampling            |
+| `logit_bias`        | object  | Per-token logit adjustments                    |
+| `logprobs`          | boolean | Return log probabilities                       |
+| `top_logprobs`      | integer | Number of top logprobs to return (0-5)         |
+
+### Extended parameters (llama.cpp, vLLM, etc.)
+
+| Parameter        | Type    | Description                               |
+| ---------------- | ------- | ----------------------------------------- |
+| `top_k`          | integer | Top-k sampling (40 default, 0 = disabled) |
+| `min_p`          | float   | Minimum probability threshold             |
+| `typical_p`      | float   | Locally typical sampling                  |
+| `repeat_penalty` | float   | Penalizes repeated token sequences        |
+| `repeat_last_n`  | integer | Token window for repeat penalty           |
+| `mirostat`       | integer | Mirostat mode (0/1/2)                     |
+| `mirostat_lr`    | float   | Mirostat learning rate                    |
+| `mirostat_ent`   | float   | Mirostat target entropy                   |
+| `dry_multiplier` | float   | DRY sampling multiplier                   |
+
+The forwarding is fully generic — any key-value pair not already consumed by OpenClaw (like `temperature`, `maxTokens`, `transport`, `cacheRetention`, `context1m`, `anthropicBeta`, `tool_stream`, or `provider`) is passed through as-is. Check your backend's API docs for available parameters.
+
+Per-agent overrides work too:
+
+```json5
+{
+  agents: {
+    list: [
+      {
+        id: "creative",
+        params: { temperature: 1.2, top_k: 80, repeat_penalty: 1.3 },
+      },
+      {
+        id: "precise",
+        params: { temperature: 0.1, top_p: 0.5, repeat_penalty: 1.0 },
+      },
+    ],
+  },
+}
+```
+
 ## Troubleshooting
 
 - Gateway can reach the proxy? `curl http://127.0.0.1:1234/v1/models`.
