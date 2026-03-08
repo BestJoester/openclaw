@@ -7,6 +7,7 @@ import {
   HumanDelaySchema,
   IdentitySchema,
   SecretInputSchema,
+  ToolResultGuardSchema,
   ToolsLinksSchema,
   ToolsMediaSchema,
 } from "./zod-schema.core.js";
@@ -747,6 +748,22 @@ export const AgentEntrySchema = z
     sandbox: AgentSandboxSchema,
     tools: AgentToolsSchema,
     runtime: AgentRuntimeSchema,
+    /** Tool result context guard: controls automatic tool result compaction behavior. */
+    toolResultGuard: ToolResultGuardSchema,
+    /** Per-agent model-specific overrides. Same structure as agents.defaults.models. */
+    models: z
+      .record(
+        z.string(),
+        z
+          .object({
+            alias: z.string().optional(),
+            params: z.record(z.string(), z.unknown()).optional(),
+            streaming: z.boolean().optional(),
+            toolResultGuard: ToolResultGuardSchema,
+          })
+          .strict(),
+      )
+      .optional(),
   })
   .strict();
 
