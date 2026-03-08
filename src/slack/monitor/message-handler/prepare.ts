@@ -26,7 +26,6 @@ import { resolveMentionGatingWithBypass } from "../../../channels/mention-gating
 import { recordInboundSession } from "../../../channels/session.js";
 import { readSessionUpdatedAt, resolveStorePath } from "../../../config/sessions.js";
 import { logVerbose, shouldLogVerbose } from "../../../globals.js";
-import { enqueueSystemEvent } from "../../../infra/system-events.js";
 import { resolveAgentRoute } from "../../../routing/resolve-route.js";
 import { resolveThreadSessionKeys } from "../../../routing/session-key.js";
 import { resolvePinnedMainDmOwnerFromAllowlist } from "../../../security/dm-policy-shared.js";
@@ -571,19 +570,11 @@ export async function prepareSlackMessage(params: {
   const roomLabel = channelName ? `#${channelName}` : `#${message.channel}`;
   const senderName = await resolveSenderName();
   const preview = rawBody.replace(/\s+/g, " ").slice(0, 160);
-  const inboundLabel = isDirectMessage
-    ? `Slack DM from ${senderName}`
-    : `Slack message in ${roomLabel} from ${senderName}`;
   const slackFrom = isDirectMessage
     ? `slack:${message.user}`
     : isRoom
       ? `slack:channel:${message.channel}`
       : `slack:group:${message.channel}`;
-
-  enqueueSystemEvent(`${inboundLabel}: ${preview}`, {
-    sessionKey,
-    contextKey: `slack:message:${message.channel}:${message.ts ?? "unknown"}`,
-  });
 
   const envelopeFrom =
     resolveConversationLabel({
