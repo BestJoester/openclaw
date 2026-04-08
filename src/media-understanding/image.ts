@@ -8,6 +8,7 @@ import {
 } from "../agents/model-auth.js";
 import { normalizeModelRef } from "../agents/model-selection.js";
 import { ensureOpenClawModelsJson } from "../agents/models-config.js";
+import { acquireProviderSlot } from "../agents/provider-concurrency.js";
 import { coerceImageAssistantText } from "../agents/tools/image-tool.helpers.js";
 import type {
   ImageDescriptionRequest,
@@ -193,19 +194,24 @@ export async function describeImagesWithModel(
     params.timeoutMs > 0
       ? setTimeout(() => controller.abort(), params.timeoutMs)
       : undefined;
-  const message = await complete(model, context, {
-    apiKey,
-    maxTokens: resolveImageToolMaxTokens(model.maxTokens, params.maxTokens ?? 512),
-    signal: controller.signal,
-  }).finally(() => {
-    clearTimeout(timeout);
-  });
-  const text = coerceImageAssistantText({
-    message,
-    provider: model.provider,
-    model: model.id,
-  });
-  return { text, model: model.id };
+  const releaseSlot = await acquireProviderSlot(model.provider, params.cfg);
+  try {
+    const message = await complete(model, context, {
+      apiKey,
+      maxTokens: resolveImageToolMaxTokens(model.maxTokens, params.maxTokens ?? 512),
+      signal: controller.signal,
+    }).finally(() => {
+      clearTimeout(timeout);
+    });
+    const text = coerceImageAssistantText({
+      message,
+      provider: model.provider,
+      model: model.id,
+    });
+    return { text, model: model.id };
+  } finally {
+    releaseSlot();
+  }
 }
 
 export async function describeImageWithModel(
