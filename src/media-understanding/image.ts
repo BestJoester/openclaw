@@ -10,6 +10,7 @@ import { findNormalizedProviderValue, normalizeModelRef } from "../agents/model-
 import { ensureOpenClawModelsJson } from "../agents/models-config.js";
 import { resolveModelWithRegistry } from "../agents/pi-embedded-runner/model.js";
 import { resolveProviderRequestCapabilities } from "../agents/provider-attribution.js";
+import { acquireProviderSlot } from "../agents/provider-concurrency.js";
 import { registerProviderStreamForModel } from "../agents/provider-stream.js";
 import {
   coerceImageAssistantText,
@@ -377,6 +378,7 @@ async function describeImagesWithModelInternal(
     });
   };
 
+  const releaseSlot = await acquireProviderSlot(model.provider, params.cfg);
   try {
     const message = await completeImage();
     try {
@@ -400,6 +402,7 @@ async function describeImagesWithModelInternal(
     });
     return { text, model: model.id };
   } finally {
+    releaseSlot();
     clearTimeout(timeout);
   }
 }

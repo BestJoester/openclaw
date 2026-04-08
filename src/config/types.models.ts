@@ -128,6 +128,13 @@ export type ModelProviderConfig = {
   authHeader?: boolean;
   request?: ConfiguredModelProviderRequest;
   models: ModelDefinitionConfig[];
+  /**
+   * Maximum number of concurrent model requests to this provider.
+   * When set, excess requests are queued until a slot is available.
+   * Useful for local model servers (e.g. llama.cpp with --parallel 1).
+   * Default: unlimited.
+   */
+  maxConcurrency?: number;
 };
 
 export type BedrockDiscoveryConfig = {
