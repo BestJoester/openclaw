@@ -366,6 +366,7 @@ export const ModelProviderSchema = z
     authHeader: z.boolean().optional(),
     request: ConfiguredModelProviderRequestSchema,
     models: z.array(ModelDefinitionSchema),
+    maxConcurrency: z.number().int().positive().optional(),
   })
   .strict();
 
