@@ -313,6 +313,7 @@ export const ModelDefinitionSchema = z
     maxTokens: z.number().positive().optional(),
     headers: z.record(z.string(), z.string()).optional(),
     compat: ModelCompatSchema,
+    imageTimeoutMs: z.number().int().positive().optional(),
   })
   .strict();
 
@@ -330,6 +331,7 @@ export const ModelProviderSchema = z
     request: ConfiguredModelProviderRequestSchema,
     models: z.array(ModelDefinitionSchema),
     maxConcurrency: z.number().int().positive().optional(),
+    imageTimeoutMs: z.number().int().positive().optional(),
   })
   .strict();
 

@@ -45,6 +45,26 @@ import {
 
 const DEFAULT_PROMPT = "Describe the image.";
 const DEFAULT_MAX_IMAGES = 20;
+const DEFAULT_IMAGE_TIMEOUT_MS = 30_000;
+
+function resolveImageTimeoutMs(
+  cfg: OpenClawConfig | undefined,
+  provider: string,
+  modelId: string,
+): number {
+  const providerCfg = cfg?.models?.providers?.[provider];
+  if (!providerCfg) return DEFAULT_IMAGE_TIMEOUT_MS;
+  const modelCfg = providerCfg.models?.find((m) => m.id === modelId);
+  const modelTimeout = (modelCfg as Record<string, unknown> | undefined)?.imageTimeoutMs;
+  if (typeof modelTimeout === "number" && Number.isFinite(modelTimeout) && modelTimeout > 0) {
+    return modelTimeout;
+  }
+  const providerTimeout = (providerCfg as Record<string, unknown>)?.imageTimeoutMs;
+  if (typeof providerTimeout === "number" && Number.isFinite(providerTimeout) && providerTimeout > 0) {
+    return providerTimeout;
+  }
+  return DEFAULT_IMAGE_TIMEOUT_MS;
+}
 
 const imageToolProviderDeps = {
   buildProviderRegistry,
@@ -216,7 +236,7 @@ async function runImagePrompt(params: {
           model: modelId,
           prompt: params.prompt,
           maxTokens: resolveImageToolMaxTokens(undefined),
-          timeoutMs: 30_000,
+          timeoutMs: resolveImageTimeoutMs(effectiveCfg, provider, modelId),
           cfg: providerCfg,
           agentDir: params.agentDir,
         });
@@ -234,7 +254,7 @@ async function runImagePrompt(params: {
           model: modelId,
           prompt: params.prompt,
           maxTokens: resolveImageToolMaxTokens(undefined),
-          timeoutMs: 30_000,
+          timeoutMs: resolveImageTimeoutMs(effectiveCfg, provider, modelId),
           cfg: providerCfg,
           agentDir: params.agentDir,
         });
@@ -251,7 +271,7 @@ async function runImagePrompt(params: {
           model: modelId,
           prompt: `${params.prompt}\n\nDescribe image ${index + 1} of ${params.images.length}.`,
           maxTokens: resolveImageToolMaxTokens(undefined),
-          timeoutMs: 30_000,
+          timeoutMs: resolveImageTimeoutMs(effectiveCfg, provider, modelId),
           cfg: providerCfg,
           agentDir: params.agentDir,
         });
