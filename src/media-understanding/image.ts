@@ -360,6 +360,9 @@ async function describeImagesWithModelInternal(
     promptInUserContent: shouldPlaceImagePromptInUserContent(model),
   });
   const controller = new AbortController();
+  // Acquire the provider slot BEFORE starting the timeout so time spent
+  // queued behind other requests doesn't count against the deadline.
+  const releaseSlot = await acquireProviderSlot(model.provider, params.cfg);
   const timeout =
     typeof params.timeoutMs === "number" &&
     Number.isFinite(params.timeoutMs) &&
@@ -378,7 +381,6 @@ async function describeImagesWithModelInternal(
     });
   };
 
-  const releaseSlot = await acquireProviderSlot(model.provider, params.cfg);
   try {
     const message = await completeImage();
     try {

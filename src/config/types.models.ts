@@ -112,6 +112,8 @@ export type ModelDefinitionConfig = {
   headers?: Record<string, string>;
   compat?: ModelCompatConfig;
   metadataSource?: "models-add";
+  /** Timeout in milliseconds for image description requests using this model. */
+  imageTimeoutMs?: number;
 };
 
 export type ModelProviderConfig = {
@@ -135,6 +137,8 @@ export type ModelProviderConfig = {
    * Default: unlimited.
    */
   maxConcurrency?: number;
+  /** Default timeout in milliseconds for image description requests to this provider. */
+  imageTimeoutMs?: number;
 };
 
 export type BedrockDiscoveryConfig = {

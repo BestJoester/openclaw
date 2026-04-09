@@ -56,7 +56,6 @@ import {
 
 const DEFAULT_PROMPT = "Describe the image.";
 const DEFAULT_MAX_IMAGES = 20;
-
 const imageToolProviderDeps = {
   buildProviderRegistry,
   getMediaUnderstandingProvider,
