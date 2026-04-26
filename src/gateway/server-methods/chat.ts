@@ -16,6 +16,7 @@ import { jsonUtf8Bytes } from "../../infra/json-utf8-bytes.js";
 import { normalizeReplyPayloadsForDelivery } from "../../infra/outbound/payloads.js";
 import { getSessionBindingService } from "../../infra/outbound/session-binding-service.js";
 import { logLargePayload } from "../../logging/diagnostic-payload.js";
+import { resolveConfiguredMediaMaxBytes } from "../../media/configured-max-bytes.js";
 import {
   appendLocalMediaParentRoots,
   getAgentScopedMediaLocalRoots,
@@ -2216,7 +2217,7 @@ export const chatHandlers: GatewayRequestHandlers = {
         explicitOriginTargetsPlugin;
       try {
         const parsed = await parseMessageWithAttachments(inboundMessage, normalizedAttachments, {
-          maxBytes: 5_000_000,
+          maxBytes: resolveConfiguredMediaMaxBytes(cfg) ?? 5_000_000,
           log: context.logGateway,
           supportsImages,
         });
