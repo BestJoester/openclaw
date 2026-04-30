@@ -81,6 +81,10 @@ import {
   CommandsListResultSchema,
   type ChatAbortParams,
   ChatAbortParamsSchema,
+  type ChatActiveRunsParams,
+  ChatActiveRunsParamsSchema,
+  type ChatActiveRunsResult,
+  ChatActiveRunsResultSchema,
   type ChatEvent,
   ChatEventSchema,
   ChatHistoryParamsSchema,
@@ -562,6 +566,9 @@ export const validateLogsTailParams = ajv.compile<LogsTailParams>(LogsTailParams
 export const validateChatHistoryParams = ajv.compile(ChatHistoryParamsSchema);
 export const validateChatSendParams = ajv.compile(ChatSendParamsSchema);
 export const validateChatAbortParams = ajv.compile<ChatAbortParams>(ChatAbortParamsSchema);
+export const validateChatActiveRunsParams = ajv.compile<ChatActiveRunsParams>(
+  ChatActiveRunsParamsSchema,
+);
 export const validateChatInjectParams = ajv.compile<ChatInjectParams>(ChatInjectParamsSchema);
 export const validateChatEvent = ajv.compile(ChatEventSchema);
 export const validateUpdateStatusParams = ajv.compile<UpdateStatusParams>(UpdateStatusParamsSchema);

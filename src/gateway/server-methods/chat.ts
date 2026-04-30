@@ -78,6 +78,7 @@ import {
   ErrorCodes,
   errorShape,
   formatValidationErrors,
+  validateChatActiveRunsParams,
   validateChatAbortParams,
   validateChatHistoryParams,
   validateChatInjectParams,
@@ -1558,6 +1559,38 @@ export const chatHandlers: GatewayRequestHandlers = {
       fastMode: entry?.fastMode,
       verboseLevel,
     });
+  },
+  "chat.activeRuns": ({ params, respond, context, client }) => {
+    if (!validateChatActiveRunsParams(params)) {
+      respond(
+        false,
+        undefined,
+        errorShape(
+          ErrorCodes.INVALID_REQUEST,
+          `invalid chat.activeRuns params: ${formatValidationErrors(validateChatActiveRunsParams.errors)}`,
+        ),
+      );
+      return;
+    }
+    const { sessionKey: rawSessionKey } = params as { sessionKey: string };
+    const requester = resolveChatAbortRequester(client);
+    const runs: Array<{ runId: string; sessionKey: string; startedAtMs?: number }> = [];
+    for (const [runId, active] of context.chatAbortControllers) {
+      if (active.sessionKey !== rawSessionKey) continue;
+      if (!canRequesterAbortChatRun(active, requester)) continue;
+      const entry: { runId: string; sessionKey: string; startedAtMs?: number } = {
+        runId,
+        sessionKey: active.sessionKey,
+      };
+      const startedAtMs =
+        (active as unknown as { startedAtMs?: number; createdAtMs?: number }).startedAtMs ??
+        (active as unknown as { startedAtMs?: number; createdAtMs?: number }).createdAtMs;
+      if (typeof startedAtMs === "number" && Number.isFinite(startedAtMs)) {
+        entry.startedAtMs = startedAtMs;
+      }
+      runs.push(entry);
+    }
+    respond(true, { runs });
   },
   "chat.abort": ({ params, respond, context, client }) => {
     if (!validateChatAbortParams(params)) {
