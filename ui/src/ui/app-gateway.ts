@@ -455,6 +455,27 @@ export function connectGateway(host: GatewayHost, options?: ConnectGatewayOption
       (host as unknown as { chatStreamStartedAt: number | null }).chatStreamStartedAt = null;
       (host as GatewayHostWithSideResults).chatSideResultTerminalRuns?.clear();
       resetToolStream(host as unknown as Parameters<typeof resetToolStream>[0]);
+      // Re-adopt any active run for the current session so the Stop affordance
+      // recovers across reconnects/reloads. The server filters by requester
+      // ownership/admin scope, so non-owners get nothing here.
+      if (host.sessionKey) {
+        void host.client
+          .request("chat.activeRuns", { sessionKey: host.sessionKey })
+          .then((result) => {
+            const typed = result as { runs?: Array<{ runId: string; sessionKey: string }> };
+            const firstRun = Array.isArray(typed?.runs)
+              ? typed.runs.find(
+                  (r) => r?.sessionKey === host.sessionKey && typeof r.runId === "string",
+                )
+              : undefined;
+            if (firstRun?.runId && !host.chatRunId) {
+              host.chatRunId = firstRun.runId;
+            }
+          })
+          .catch((err) => {
+            console.warn("[openclaw] chat.activeRuns failed:", err);
+          });
+      }
       if (shutdownHost.resumeChatQueueAfterReconnect) {
         // The interrupted run will never emit its terminal event now that the
         // old client is gone, so resume any deferred commands after hello.

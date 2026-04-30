@@ -59,6 +59,29 @@ export const ChatAbortParamsSchema = Type.Object(
   { additionalProperties: false },
 );
 
+export const ChatActiveRunsParamsSchema = Type.Object(
+  {
+    sessionKey: NonEmptyString,
+  },
+  { additionalProperties: false },
+);
+
+export const ChatActiveRunsResultSchema = Type.Object(
+  {
+    runs: Type.Array(
+      Type.Object(
+        {
+          runId: NonEmptyString,
+          sessionKey: NonEmptyString,
+          startedAtMs: Type.Optional(Type.Integer({ minimum: 0 })),
+        },
+        { additionalProperties: false },
+      ),
+    ),
+  },
+  { additionalProperties: false },
+);
+
 export const ChatInjectParamsSchema = Type.Object(
   {
     sessionKey: NonEmptyString,
